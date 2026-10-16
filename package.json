@@ -5,7 +5,9 @@
   "description": "A sanitized portfolio edition of the CIIB research workbench",
   "scripts": {
     "test": "node _ciib_dev/tests/test-assistant.js",
-    "build:offline": "node workplat/ciib_app/build-standalone.cjs"
+    "build:offline": "node workplat/ciib_app/build-standalone.cjs",
+    "test:page": "npm run build:offline && node _ciib_dev/tests/test-standalone.js",
+    "verify": "npm test && npm run test:page"
   },
   "devDependencies": {
     "jsdom": "^26.1.0"

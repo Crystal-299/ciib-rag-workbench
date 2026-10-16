@@ -1,5 +1,6 @@
 node_modules/
-workplat/dist/
+workplat/dist/*
+!workplat/dist/ciib-工作台-单文件版.html
 workplat/config.local.js
 *.dna
 *.fastq

@@ -1,52 +1,26 @@
-# CIIB · 植物生信科研工作台（RAG 作品集版）
+# CIIB · Research Workbench | 植物生信科研工作台
 
-一个浏览器端科研记录工作台，包含实验/载体与引物记录、文献与知识库、可视化工具，以及面向当前记录的问答助手。本仓库是从本人 CIIB 工作目录整理的**可公开作品集副本**，并非生产部署或真实实验数据发布。界面为中文。
+## 中文
 
-## 页面入口
+这是 CIIB 网页的**可下载、可本机运行版本**：实验/载体/引物记录、文献与知识库、绘图和科研总览，外加在本机记录上建索引的问答助手。公开版不含真实实验记录、原云服务配置及来源未确认的大型基因 ID 映射表；因此可以复现工作台页面与本机功能，**不能等同于原线上账号/云同步部署**。
 
-下方是作者确认的 CIIB 网页二维码。扫码访问的是外部网页；本仓库是移除了原服务配置和研究资料的作品集副本，两者不应视为完全相同的部署。
+**直接使用：**下载仓库，双击 [`workplat/dist/ciib-工作台-单文件版.html`](workplat/dist/ciib-工作台-单文件版.html)。它已内联 CSS、JS、科研总览和图标，无需 Node、服务器或账号；记录存在当前浏览器的 localStorage。请先用虚构记录试用，不要在未审查隐私前输入真实未发表资料。
+
+**从源码重建并验证（Node.js 20+）：**
+
+```bash
+npm ci
+npm run verify
+```
+
+`verify` 运行 82 项助手回归检查、重新生成离线 HTML，再运行 18 项独立页面检查（打开导航、建记录、持久化、载体页、科研总览与运行期错误）。预期均为 0 失败。另用 Edge 无头模式实际打开离线文件，确认标题、10 个导航入口和问答按钮出现。源码入口是 `workplat/ciib · 植物生信可视化工作台.html`；`npm run build:offline` 可单独重建单文件版。RAG 在浏览器本地用 BM25 检索最多 6 条记录；只有配置了自己的云服务且登录后才会把命中片段送模型生成回答。未配置时提供本机检索，引用可回跳记录但不等于事实核验。[局限](LIMITATIONS.md)。
+
+作者确认的原网页二维码（外部页面，不保证与此脱敏版部署相同）：
 
 ![CIIB 网页二维码](docs/ciib-page-qr.jpg)
 
-## RAG 如何工作
+## English
 
-`workplat/ciib_app/assistant.js` 将 14 类工作台记录整理为带模块和记录 ID 的文档块；在浏览器本机用中文双字词/单字和英文词进行 BM25 排序，取最多 6 条相关记录。用户已登录且配置了云服务时，助手将这些片段与问题发给模型，流式显示回答，并把 `【1】` 等引用链接回原记录。没有可用模型时只展示本机检索结果。新增、修改或删除记录后会重建索引。序列字段、界面状态和 ID 等不进入检索正文，但记录内容仍可能包含敏感信息，使用云模型前应自行审查。
+This is a downloadable, locally usable CIIB workbench with research records, literature/knowledge modules, plotting, a project overview and a browser-local BM25 assistant. The public edition omits real research records, the original cloud configuration and an ownership-uncertain generated gene-ID database. It reproduces the **local UI and interactions**, not the original hosted account/sync service.
 
-这是**关键词检索 + 生成**，不是向量数据库方案；引用可点击不等于事实已自动核验。
-
-## 仓库结构
-
-```text
-workplat/                    浏览器端工作台源码与入口 HTML
-  ciib_app/assistant.js      本机索引、检索、提示词与回答 UI
-  ciib_app/cloud.js          可选云同步接口（无实际服务配置）
-  ciib_note/                 实验、载体、引物等记录界面
-  ciib_lit/ ciib_kb/          文献与知识库
-  ciib_plot/ ciib_tools/     绘图与工具
-  ciib-ro/                   科研总览
-_ciib_dev/tests/             使用虚构记录的问答助手回归测试
-```
-
-## 安装、测试与小样例
-
-需要 Node.js 20+ 和 npm。以下命令在仓库根目录运行：
-
-```powershell
-npm ci
-npm test
-npm run build:offline
-```
-
-预期：测试输出 `助手测试结果: 82 通过, 0 失败`；构建生成被 Git 忽略的 `workplat/dist/ciib-工作台-单文件版.html`。可以在浏览器中打开该 HTML，在本机模式录入自己可公开的虚构记录，再用右下角问答按钮检索。测试本身已注入虚构记录，覆盖语料构建、中文分词、BM25、提示词、引用解析、离线降级、浮窗与索引更新；无需导入实验数据。
-
-源码入口为 `workplat/ciib · 植物生信可视化工作台.html`。若浏览器限制本地文件加载，可在仓库根目录运行 `python -m http.server 8000`，然后访问 `http://localhost:8000/workplat/ciib%20%C2%B7%20%E6%A4%8D%E7%89%A9%E7%94%9F%E4%BF%A1%E5%8F%AF%E8%A7%86%E5%8C%96%E5%B7%A5%E4%BD%9C%E5%8F%B0.html`。本仓库没有接入公开云服务；本地打开只提供本机记录与检索，不能凭此验证云端生成。
-
-## 部署配置与隐私
-
-`workplat/config.js` 故意留空，原工作目录的服务地址和发布密钥未纳入 Git。若部署自己的服务，请参考 `workplat/config.example.js` 并在受控部署中加载配置。发布密钥即使称为 publishable key，也必须配合服务端鉴权、行级访问控制与滥用限制；本仓库**未验证**这些条件。不要把实验原始数据、未发表结果、个人/合作者信息放进公开仓库或演示账号。模型生成时，命中的记录片段会离开本机。
-
-## 来源与验证边界
-
-工作台及助手源码来自更新后的本地 CIIB 工作目录；本仓库整理了目录、移除了原有服务配置与大体积参考映射、替换了可能涉及具体课题的示例名，并新增了文档和运行说明。原目录中已有 `test-assistant.js`；公开副本调整为虚构种子数据。此次整理实际运行了 82 项测试与离线构建。未运行真实云模型评测或跨账号云同步测试；详见 [LIMITATIONS.md](LIMITATIONS.md)。
-
-本仓库不附带实验数据、SnapGene 文件、真实载体序列或预生成大型映射表。由于去除了 `iddata.js`，部分 ID 映射工具在本版中没有参考数据库；其他界面模块也未做完整端到端回归。
+Download the repository and open the prebuilt `workplat/dist/ciib-工作台-单文件版.html` directly—no server or login is needed. To rebuild from source, run `npm ci` and `npm run verify`; expect 82 assistant checks and 18 standalone-page checks, all passing. Records remain in your browser's localStorage. Cloud-generated answers require a separately configured service; the offline edition searches locally only. Do not enter confidential data into an unreviewed deployment. See [limitations](LIMITATIONS.md).
