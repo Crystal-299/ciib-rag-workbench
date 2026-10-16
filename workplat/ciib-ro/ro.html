@@ -1,0 +1,3235 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>CIIB · 科研总览</title>
+<style>
+/* ============================================================
+   CIIB 科研总览（工作台内嵌页 · ciib-ro/ro.html）
+   视觉语言直接沿用原工作台：绿色品牌色 / 浅底 / 圆角卡片 /
+   细边框 / 轻阴影 / 紧凑字体 / 高信息密度
+   入口：工作台左上角 ciib Logo（点击进入）。由 ciib-ro/ro.js 以 iframe 内嵌，
+   自带全局样式所以做了样式与事件隔离；数据存在独立 key（ciib_ro_proto:v2），
+   与工作台主数据 ciib2:db 互不影响。
+   ============================================================ */
+:root{
+  --bg:#f4f6f5; --panel:#ffffff; --line:#e3e8e6; --ink:#1c2b28; --mut:#6b7f7a;
+  --brand:#167c69; --brand-2:#0f5c4e; --brand-soft:#e2f1ee; --danger:#c2554f; --nav-hover:#e9f2ef;
+  --ok:#167c69; --ok-bg:#f3faf8; --ok-ln:#bfe0d8;
+  --warn:#a3691f; --warn-bg:#fdf9f1; --warn-ln:#ecdcb8;
+  --bad:#b0433d; --bad-bg:#fdf4f3; --bad-ln:#eccac7;
+  --todo:#5f5e5a; --todo-bg:#f7f7f5; --todo-ln:#e0e0da;
+  --radius:12px; --shadow:0 1px 3px rgba(20,40,35,.08),0 8px 24px rgba(20,40,35,.06);
+}
+*{box-sizing:border-box} html,body{height:100%}
+body{margin:0;font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:6px 14px;transition:.15s}
+button:hover{border-color:var(--brand);color:var(--brand)}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+button.primary:hover{background:var(--brand-2);color:#fff}
+button.danger{color:var(--danger)} button.danger:hover{border-color:var(--danger);color:var(--danger)}
+button.ghost{background:none} button.text-button{border:none;background:none;padding:2px 6px}
+button.chip{padding:2px 10px;border-radius:99px;font-size:12px}
+button.active{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-2)}
+button.mini{padding:2px 8px;font-size:11.5px;border-radius:7px}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-soft);border-color:var(--brand)}
+input[type=checkbox],input[type=radio]{width:auto}
+.muted{color:var(--mut)}
+
+/* ---------- 多选控件：不用原生 <select multiple>（原生必须按住 Ctrl 才能加选） ---------- */
+.msel{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:auto;padding:4px;scrollbar-width:thin}
+.msel-bar{display:flex;align-items:center;gap:9px;padding:2px 4px 5px;border-bottom:1px dashed var(--line);margin-bottom:3px;position:sticky;top:0;background:#fff;z-index:1}
+.msel-bar .msel-n{font-size:11px;color:var(--mut)}
+.msel-bar .msel-n b{color:var(--brand-2)}
+.msel-bar button{border:none;background:none;padding:0;font-size:11px;color:var(--brand);width:auto}
+.msel-bar button:hover{text-decoration:underline}
+.msel-i{display:flex;align-items:center;gap:7px;padding:4px 6px;border-radius:6px;font-size:12.5px;cursor:pointer;user-select:none}
+.msel-i:hover{background:var(--nav-hover)}
+.msel-i input{flex:none;accent-color:var(--brand)}
+.msel-i.on{background:var(--brand-soft);color:var(--brand-2)}
+.msel-i span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.multi-hint{font-size:11px;color:var(--mut);margin-top:2px;line-height:1.5}
+
+/* ---------- 单选（项目标签：一个对象只能挂一个项目） ---------- */
+.radios{display:flex;flex-wrap:wrap;gap:6px}
+.radios label{display:flex;align-items:center;gap:6px;font-size:12.5px;border:1px solid var(--line);border-radius:99px;padding:3px 11px;cursor:pointer;background:#fff;width:auto}
+.radios label:hover{border-color:var(--brand)}
+.radios label.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-2);font-weight:600}
+.radios input{accent-color:var(--brand)}
+
+/* ---------- ② 研究逻辑：分层 DAG，允许多分支并行 ---------- */
+/* 阶段列头统一贴顶，节点栈在剩余高度里垂直居中 —— 这样 1 个节点的阶段
+   不会孤零零挂在顶部，多分支的阶段从中间向两侧铺开，整张图看着是平的。 */
+.dag{position:relative;display:flex;align-items:stretch;gap:38px;overflow-x:auto;padding:12px 2px 14px;scrollbar-width:thin;min-height:170px}
+.dag-edges{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.dag-col{flex:none;width:156px;display:flex;flex-direction:column;gap:8px;justify-content:flex-start}
+.dag-stack{flex:1;display:flex;flex-direction:column;gap:10px;justify-content:center}
+.dag-col .btag{font-size:10.5px;color:var(--brand-2);background:var(--brand-soft);border-radius:99px;padding:1px 8px;align-self:flex-start;white-space:nowrap}
+.dag-node{width:100%}
+.dag-node .mt .lv{color:var(--brand-2)}
+/* 阶段列头：阶段号 + 并行标记 + （维护模式）在本阶段加节点 */
+.dag-colhead{display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-height:20px}
+.dag-colhead .lvtag{font-size:10.5px;color:var(--mut);letter-spacing:.3px}
+.dag-colhead .plus{border:1px dashed var(--line);background:#fff;color:var(--brand);border-radius:6px;font-size:11px;
+  line-height:1;padding:2px 6px;width:auto}
+.dag-colhead .plus:hover{border-color:var(--brand);background:var(--brand-soft)}
+.dag-empty{border:1px dashed var(--line);border-radius:9px;padding:12px 8px;font-size:11px;color:var(--mut);text-align:center}
+/* 节点上的阶段调节：◂ 阶段 N ▸ + 恢复自动 */
+.stgrow{display:flex;align-items:center;gap:4px;margin-top:4px;padding-top:5px;border-top:1px dashed var(--line)}
+.stgbtn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:1px 7px;font-size:11px;line-height:1.5;width:auto;color:var(--mut)}
+.stgbtn:hover{border-color:var(--brand);color:var(--brand-2);background:var(--brand-soft)}
+.stgbtn.auto{font-size:10.5px;padding:1px 5px}
+.stgn{font-size:10.5px;color:var(--brand-2);min-width:26px;text-align:center}
+.edrow{display:flex;gap:6px;margin-top:6px}
+.edrow .mini{width:auto;padding:1px 7px;line-height:1.5}
+/* 阶段快捷编辑（抽屉里那行） */
+.stg-inline{margin-left:8px}
+
+/* ---------- 导入 / 导出面板 ---------- */
+.io-tip{background:var(--brand-soft);border:1px solid #a9d3c9;border-radius:10px;padding:9px 11px;font-size:12px;color:var(--brand-2);margin-bottom:12px}
+.io-sec{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+.io-h{font-size:12.5px;font-weight:700;color:var(--brand-2);margin-bottom:8px}
+.io-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:7px}
+.io-row:last-child{margin-bottom:0}
+.io-row select{max-width:280px}
+.io-note{font-size:11px;color:var(--mut);line-height:1.5}
+.io-file{display:inline-flex;align-items:center;gap:6px;border:1px dashed var(--brand);background:var(--brand-soft);color:var(--brand-2);
+  border-radius:8px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer;width:auto}
+.io-file:hover{background:#d8ece7}
+.io-file input[type=file]{display:none}
+.io-prev{border:1px solid var(--brand);border-radius:9px;padding:9px 11px;background:#fbfdfc;font-size:12px;margin-top:8px;line-height:1.6}
+.io-prev.bad{border-color:var(--danger);background:#fdf3f2;color:#8f2c22}
+.io-prev b{color:var(--brand-2)}
+.io-btns{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+.io-mini{margin-top:8px;border-collapse:collapse;font-size:11px;width:100%}
+.io-mini th,.io-mini td{border:1px solid var(--line);padding:3px 6px;text-align:left;white-space:nowrap}
+.io-mini th{background:#f6f8f7;color:var(--mut);font-weight:600}
+
+/* ---------- 关联实验 / 文献（自动来源 + 手动关联两类） ---------- */
+.lnk-grp{display:flex;gap:6px;align-items:flex-start;margin-bottom:6px}
+.lnk-tag{flex:none;font-size:10.5px;border-radius:5px;padding:1px 6px;background:#f1f3f2;color:var(--mut);border:1px solid var(--line);margin-top:2px;white-space:nowrap}
+.lnk-tag.man{background:var(--brand-soft);color:var(--brand-2);border-color:#a9d3c9}
+.lnk-body{display:flex;flex-wrap:wrap;align-items:center}
+.pill.lnk{cursor:pointer}
+.pill.lnk:hover{border-color:var(--brand);color:var(--brand-2)}
+.pill .x{margin-left:5px;color:var(--danger);font-weight:700;cursor:pointer}
+.pill .x:hover{color:#b02b1f}
+.emlv{font-size:10.5px;color:var(--mut);border:1px solid var(--line);border-radius:5px;padding:0 6px;white-space:nowrap}
+.emlv.par{color:var(--brand-2);border-color:#a9d3c9;background:var(--brand-soft)}
+.mk{font-weight:700;flex:none;width:15px;text-align:center}
+.mk.ok{color:var(--ok)} .mk.warn{color:var(--warn)} .mk.bad{color:var(--bad)} .mk.todo{color:#8a8a80}
+
+/* ---------- 顶栏 ---------- */
+.ro-top{position:sticky;top:0;z-index:30;background:var(--panel);border-bottom:1px solid var(--line);padding:9px 18px 0}
+.ro-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ro-brand{display:flex;align-items:center;gap:9px;padding:3px 7px;border-radius:9px}
+.ro-brand .lg{width:32px;height:32px;border-radius:8px;background:var(--brand);display:grid;place-items:center;flex:none}
+.ro-brand .lg svg{width:19px;height:19px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ro-brand b{font-size:19px;color:var(--brand-2);display:block;line-height:1.05}
+.ro-brand small{color:var(--mut);letter-spacing:1.6px;font-size:9.5px}
+/* 嵌入工作台时，左上角的 logo 由主站提供（点 logo 进来、logo 就停在原科研总览 logo 的位置），
+   这里只留同宽的占位，让项目选择器仍在原来的位置。 */
+.ro-slot{width:157px;height:38px;flex:none}
+.ro-proj{display:flex;align-items:center;gap:8px;margin-left:4px;flex-wrap:wrap}
+.ro-proj select{width:auto;min-width:186px;font-weight:600;color:var(--brand-2);background:var(--brand-soft);border-color:#a9d3c9}
+.ro-updated{color:var(--mut);font-size:12px;white-space:nowrap}
+.ro-actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ro-tabs{display:flex;gap:2px;margin-top:7px;border-bottom:1px solid var(--line);align-items:flex-end}
+.ro-tabs .ro-h1{font-size:16px;font-weight:700;margin:0 18px 8px 2px;color:var(--brand-2);white-space:nowrap}
+.ro-tabs button{border:none;background:none;border-radius:0;padding:8px 14px;color:var(--mut);border-bottom:2px solid transparent;margin-bottom:-1px}
+.ro-tabs button:hover{color:var(--brand)}
+.ro-tabs button.active{color:var(--brand-2);font-weight:700;border-bottom-color:var(--brand)}
+.ro-tabs .tabs-sp{margin-left:auto;padding-bottom:6px}
+
+/* ---------- 视图容器 ---------- */
+.ro-view{padding:16px 22px 70px;max-width:1300px;margin:0 auto}
+.ed-only{display:none}
+.ro-view.editing .ed-only{display:inline-flex}
+
+/* ---------- 空白状态（本页不自带数据，首次打开即此屏） ---------- */
+.ro-empty{max-width:560px;margin:64px auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);padding:34px 30px 28px;text-align:center}
+.ro-empty .re-ico{width:52px;height:52px;border-radius:14px;background:var(--brand-soft);margin:0 auto 14px;display:grid;place-items:center}
+.ro-empty .re-ico svg{width:27px;height:27px;stroke:var(--brand-2);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ro-empty h2{font-size:19px;margin:0 0 9px;color:var(--text)}
+.ro-empty p{margin:0 0 18px;font-size:13px;line-height:1.75;color:var(--mut)}
+.ro-empty .re-btns{display:flex;gap:9px;justify-content:center;flex-wrap:wrap}
+.ro-empty .re-tip{margin-top:18px;font-size:11.5px;line-height:1.7;color:var(--mut)}
+.ro-empty code{background:var(--brand-soft);border-radius:4px;padding:1px 5px;font-size:11px;color:var(--brand-2)}
+
+/* ---------- 区块 ---------- */
+.sec{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:13px 16px 15px;margin-bottom:13px}
+.sec-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;flex-wrap:wrap}
+.sec-no{width:20px;height:20px;border-radius:6px;background:var(--brand-soft);color:var(--brand-2);font-size:11.5px;font-weight:700;display:grid;place-items:center;flex:none}
+.sec-head h2{font-size:15px;margin:0}
+.sec-head p{margin:0;font-size:12px;color:var(--mut)}
+.sec-head .sp{margin-left:auto;display:flex;gap:6px;align-items:center}
+.edit-flag{font-size:11px;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-ln);border-radius:99px;padding:1px 9px}
+
+/* ---------- ① 项目状态 ---------- */
+.qbox{background:#fbfdfc;border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:9px;padding:11px 14px}
+.qbox .qk{font-size:11.5px;color:var(--mut);letter-spacing:.5px}
+.qbox .qt{font-size:15.5px;font-weight:600;margin-top:3px;line-height:1.5}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.proj-dates{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--mut)}
+.proj-dates .k{min-width:56px;color:var(--mut)}
+.proj-dates .pill{margin:0}
+.proj-dates .date-pill{cursor:pointer;font:inherit;font-size:11.5px}
+.proj-dates .date-pill:hover{border-color:var(--brand);color:var(--brand-2);background:var(--brand-soft)}
+.stat-b{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 14px;display:flex;align-items:baseline;gap:7px;min-width:106px;text-align:left}
+.stat-b b{font-size:19px;line-height:1}
+.stat-b span{font-size:12px;color:var(--mut)}
+.stat-b.ok{background:var(--ok-bg);border-color:var(--ok-ln)} .stat-b.ok b{color:var(--ok)}
+.stat-b.warn{background:var(--warn-bg);border-color:var(--warn-ln)} .stat-b.warn b{color:var(--warn)}
+.stat-b.bad{background:var(--bad-bg);border-color:var(--bad-ln)} .stat-b.bad b{color:var(--bad)}
+.stat-b.todo{background:var(--todo-bg);border-color:var(--todo-ln)} .stat-b.todo b{color:var(--todo)}
+.stat-b:hover{box-shadow:var(--shadow);border-color:var(--brand)}
+.stat-hint{font-size:11.5px;color:var(--mut);margin-top:7px}
+
+/* ---------- ② 研究逻辑 / Evidence Map ---------- */
+.chain-wrap{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:5px 2px 8px;scrollbar-width:thin}
+.lnode{flex:none;width:148px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 11px;cursor:pointer;position:relative}
+.lnode:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.lnode.sel{border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand)}
+.lnode .nm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+.lnode .mt{font-size:11px;color:var(--mut);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap}
+.lnode .bar{height:3px;border-radius:2px;margin-top:7px;background:var(--todo-ln)}
+.lnode.ok .bar{background:var(--ok-ln)} .lnode.warn .bar{background:var(--warn-ln)} .lnode.bad .bar{background:var(--bad-ln)}
+.larrow{flex:none;display:grid;place-items:center;width:26px;color:#b9c6c2;font-size:15px;user-select:none}
+.chain-hint{font-size:11.5px;color:var(--mut);margin-top:2px}
+
+/* 证据地图视图：纵向放大 + 内联详情 */
+.emap{display:flex;flex-direction:column;gap:0}
+.emrow{display:flex;gap:12px}
+.emgutter{width:26px;flex:none;display:flex;flex-direction:column;align-items:center}
+.emgutter .dot{width:11px;height:11px;border-radius:50%;background:#fff;border:2px solid var(--todo-ln);margin-top:14px;flex:none;z-index:1}
+.emrow.ok .emgutter .dot{border-color:var(--ok);background:var(--ok)}
+.emrow.warn .emgutter .dot{border-color:var(--warn);background:var(--warn)}
+.emrow.bad .emgutter .dot{border-color:var(--bad);background:var(--bad)}
+.emgutter .line{width:2px;background:var(--line);flex:1;min-height:14px}
+.emgutter .line.hide{visibility:hidden}
+.embody{flex:1;min-width:0;padding-bottom:10px}
+.emcard{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 13px;cursor:pointer}
+.emcard:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.emcard .t{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+.emcard .m{font-size:11.5px;color:var(--mut);margin-top:3px}
+.emcard .gap{font-size:11.5px;color:var(--warn);margin-top:5px}
+.emdetail{border:1px dashed var(--brand);border-radius:10px;background:#fbfdfc;padding:11px 13px;margin-top:8px}
+.dl{display:grid;grid-template-columns:88px 1fr;gap:4px 10px;font-size:12.5px}
+.dl .k{color:var(--mut)}
+.pill{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);background:#fbfbfa;margin:0 4px 4px 0}
+.pill.ok{background:var(--ok-bg);border-color:var(--ok-ln);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);border-color:var(--warn-ln);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);border-color:var(--bad-ln);color:var(--bad)}
+
+/* ---------- ③④ 结论 / 假设 ---------- */
+.col2{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:13px}
+.crow{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;cursor:pointer;background:#fff}
+.crow:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.crow .txt{flex:1;min-width:0;font-size:13.5px}
+.crow .sub{font-size:11.5px;color:var(--mut);margin-top:3px}
+.crow .mini{margin-left:auto;flex:none}
+.hchip{font:700 10.5px/1 Consolas,Menlo,monospace;background:var(--brand-soft);color:var(--brand-2);border-radius:5px;padding:4px 5px;flex:none;margin-top:1px}
+
+/* ---------- ⑤ 关键证据 ---------- */
+.ev-filters{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 12px}
+.ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:11px}
+.ev-card{background:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 12px;cursor:pointer;display:flex;flex-direction:column;gap:7px}
+.ev-card:hover{border-color:var(--brand);box-shadow:var(--shadow)}
+.ev-top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ev-name{font-weight:600;font-size:13.5px}
+.ty{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.ev-find{font-size:12px;color:var(--brand-2);background:var(--brand-soft);border-radius:6px;padding:2px 8px;align-self:flex-start}
+.ev-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--mut);border-top:1px dashed var(--line);padding-top:7px}
+.ev-src{display:flex;align-items:center;gap:6px;min-width:0}
+.ev-src .o{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ref-note{font-size:11.5px;color:var(--mut);margin:0 0 12px;padding:7px 10px;background:#fbfdfc;border:1px dashed var(--line);border-radius:8px}
+
+/* ---------- ⑥ 下一步 ---------- */
+.nq{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fff}
+.nq .no{font:700 13px/1 Consolas,Menlo,monospace;color:var(--brand);background:var(--brand-soft);border-radius:7px;padding:5px 7px;flex:none}
+.nq .body{flex:1;min-width:0}
+.nq .t{font-size:13.5px}
+.nq .why{font-size:11.5px;color:var(--mut);margin-top:3px}
+.nq .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.nq.done .t{text-decoration:line-through;color:var(--mut)}
+.prio{font-size:11px;padding:1px 8px;border-radius:99px;border:1px solid;flex:none;margin-left:6px}
+.prio.高{background:var(--bad-bg);border-color:var(--bad-ln);color:var(--bad)}
+.prio.中{background:var(--warn-bg);border-color:var(--warn-ln);color:var(--warn)}
+.prio.低{background:var(--todo-bg);border-color:var(--todo-ln);color:var(--todo)}
+
+/* ---------- 全部内容 ---------- */
+.ct-sum{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.ct-sum .s{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 14px;display:flex;gap:7px;align-items:baseline;box-shadow:var(--shadow)}
+.ct-sum .s b{font-size:18px;color:var(--brand-2)}
+.ct-sum .s span{font-size:12px;color:var(--mut)}
+.ct-filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.ct-filters label{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ct-filters select{width:auto;min-width:104px}
+.ct-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:10px}
+.ct-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.ct-card .h{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ct-card .ttl{font-size:13px;font-weight:600}
+.ct-card .mm{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--brand-soft);color:var(--brand-2);flex:none}
+.ct-card .mt{margin-top:5px;font-size:11.5px;color:var(--mut);display:flex;gap:9px;flex-wrap:wrap}
+.ct-card .as{margin-top:6px}
+.ct-card.done{opacity:.6;border-style:dashed}
+.ct-card.done .ttl{text-decoration:line-through;color:var(--mut)}
+
+/* ---------- 抽屉 / 弹窗 / toast ---------- */
+.ro-drawer{position:fixed;top:0;right:0;bottom:0;width:min(430px,94vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:-8px 0 28px rgba(20,40,35,.14);z-index:60;transform:translateX(103%);transition:transform .22s ease;display:flex;flex-direction:column}
+.ro-drawer.open{transform:none}
+.ro-drawer .dh{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.ro-drawer .dh h3{margin:0;font-size:14.5px}
+.ro-drawer .dh button{margin-left:auto;border:none;background:none;font-size:20px;line-height:1;padding:0 4px}
+.ro-drawer .db{overflow:auto;padding:13px 14px 30px}
+.dsec{margin-bottom:14px}
+.dsec .dk{font-size:11.5px;color:var(--mut);letter-spacing:.4px;margin-bottom:5px}
+.dsec .dv{font-size:13px}
+.dli{padding:8px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;background:#fff;font-size:13px;cursor:pointer}
+.dli:hover{border-color:var(--brand)}
+.modal-shade{position:fixed;inset:0;background:rgba(18,32,28,.35);display:flex;align-items:flex-start;justify-content:center;padding:5vh 16px;z-index:70;overflow:auto}
+.modal{background:var(--panel);border-radius:14px;width:min(700px,100%);padding:15px 18px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.modal-head h2{margin:0;font-size:16px}
+.modal-head button{border:none;background:none;font-size:20px;line-height:1}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.form-grid .full{grid-column:1/-1}
+.date-quick{display:flex;gap:6px;flex-wrap:wrap}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.field>span{color:var(--mut)}
+.form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.ro-toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:#1f3a34;color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;z-index:90;opacity:0;pointer-events:none;transition:.2s;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:86vw}
+.ro-toast.on{opacity:1;transform:translate(-50%,0)}
+.proto-tip{background:#fbf7ef;border:1px solid #eadfc8;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#6b5a33}
+.proto-tip b{color:#8a6a1f}
+.ul{margin:4px 0 0;padding-left:18px;font-size:12.5px;color:#3c4d48}
+.ul li{margin-bottom:3px}
+
+/* ---------- 模块优先选择器（先选模块 → 再看模块内卡片标题） ----------
+   为什么不让人填「来源编号」：编号记不住。先把模块选出来（实验记录 / 文献 /
+   知识库 / 科研绘图 …），下面直接列出该模块的卡片标题供勾选/单选。 */
+.modtabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px}
+.modtab{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:#fff;color:var(--mut);
+  border-radius:99px;padding:2px 11px;font-size:12px;width:auto}
+.modtab:hover{border-color:var(--brand);color:var(--brand-2)}
+.modtab.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-2);font-weight:600}
+.modtab .n{font-size:10.5px;color:var(--mut);background:#f1f3f2;border-radius:99px;padding:0 5px}
+.modtab.on .n{background:#fff;color:var(--brand-2)}
+.pick-i{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:6px;font-size:12.5px;cursor:pointer;user-select:none}
+.pick-i:hover{background:var(--nav-hover)}
+.pick-i input{flex:none;accent-color:var(--brand)}
+.pick-i.on{background:var(--brand-soft)}
+.pick-i .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.pick-i .dt{flex:none;font-size:11px;color:var(--mut)}
+.pick-i .mk2{flex:none;font-size:10.5px;color:var(--mut);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.pick-empty{font-size:11.5px;color:var(--mut);padding:6px 3px}
+.pick-grp{font-size:11px;color:var(--mut);margin:7px 0 3px}
+.pick-grp:first-child{margin-top:0}
+.pick-gone{color:var(--bad,#c0392b)}
+.ct-src{font-size:10.5px;border:1px solid var(--line);border-radius:5px;padding:0 5px;color:var(--mut);white-space:nowrap}
+.ct-card .h .ct-src{margin-left:auto}
+.ref-note.warn{background:#fdf4e7;border-color:#e8cfae;color:#8a5a20}
+.ct-src.db{color:var(--brand-2);border-color:var(--brand-2)}
+.ct-src.gone{color:#c0392b;border-color:#e2b3ae}
+.ct-tools{display:flex;gap:5px;align-items:center}
+.ct-tools button{border:1px solid var(--line);background:#fff;border-radius:6px;font-size:11px;padding:1px 7px;color:var(--mut);cursor:pointer}
+.ct-tools button:hover{border-color:var(--brand);color:var(--brand-2)}
+
+@media(max-width:900px){ .col2{grid-template-columns:1fr} }
+@media(max-width:640px){
+  .ro-view{padding:12px 12px 60px}
+  .ro-top{padding:8px 12px 0}
+  .ro-proj select{min-width:150px}
+  .ro-tabs .ro-h1{display:none}
+  .form-grid{grid-template-columns:1fr}
+}
+/* ============================================================================
+   靛蓝配色（html.theme-ink）—— 与主工作台 style.css 的 theme-ink 同源：
+   primary #1c528d / secondary #8d561c / background #c7d8eb / accent #6a4115 / text #272e35
+   配色跟随主工作台：本页没有自己的配色开关。嵌入时由 ciib-ro/ro.js 通过
+   postMessage 推送；单独打开时读主站的 localStorage「ciib2:theme」。
+   ============================================================================ */
+html.theme-ink{
+  --bg:#c7d8eb; --panel:#ffffff; --line:#a9bdd8; --ink:#272e35; --mut:#5a6b80;
+  --brand:#1c528d; --brand-2:#143d6b; --brand-soft:#dbe7f5; --nav-hover:#f2e9db;
+  --danger:#c2554f;
+  /* 语义色：绿色系 → 蓝色系（红 / 琥珀保留） */
+  --ok:#1c528d; --ok-bg:#eaf1fa; --ok-ln:#b9cde8;
+  --warn:#8d561c; --warn-bg:#fbf5ec; --warn-ln:#e6cfa8;
+  --bad:#b0433d; --bad-bg:#fdf1f0; --bad-ln:#eccac7;
+  --todo:#5a6b80; --todo-bg:#eef2f8; --todo-ln:#ccd8e8;
+  --shadow:0 1px 3px rgba(20,40,70,.08),0 8px 24px rgba(20,40,70,.08);
+}
+/* 描边小方块：白底 + 辅助棕描边 */
+html.theme-ink button{border-color:#b08954}
+html.theme-ink button.primary{border-color:var(--brand)}
+html.theme-ink .modtab,html.theme-ink .stgbtn,html.theme-ink .dag-colhead .plus{border-color:#b08954}
+html.theme-ink .msel,html.theme-ink .radios label,html.theme-ink .stat-b,
+html.theme-ink .lnode,html.theme-ink .emcard,html.theme-ink .crow,html.theme-ink .ev-card,
+html.theme-ink .dli,html.theme-ink .io-sec,html.theme-ink .modtab,
+html.theme-ink .msel-bar{background:var(--panel)}
+/* 浅绿底块 → 浅蓝底块 */
+html.theme-ink .qbox,html.theme-ink .emdetail,html.theme-ink .io-prev,html.theme-ink .ref-note{background:#f7faff}
+html.theme-ink .larrow{color:#a9bdd8}
+html.theme-ink .pill{background:#f7f9fc}
+html.theme-ink .io-tip{border-color:#b9cde8}
+html.theme-ink .lnk-tag.man{border-color:#b9cde8}
+html.theme-ink .io-file{background:var(--brand-soft);border-color:var(--brand)}
+html.theme-ink .io-file:hover{background:#c9dcf2}
+html.theme-ink .io-mini th{background:#eef3fa}
+html.theme-ink .ro-toast{background:#143d6b}
+html.theme-ink .proto-tip{background:#f7f1e5;border-color:#e6cfa8;color:#5a4530}
+html.theme-ink .proto-tip b{color:#8d561c}
+html.theme-ink .ul{color:#33475e}
+html.theme-ink .modtab .n{background:#eef2f8}
+html.theme-ink .modtab.on .n{background:#fff;color:var(--brand-2)}
+html.theme-ink .modal-shade{background:rgba(18,30,52,.36)}
+html.theme-ink .ro-drawer{box-shadow:-8px 0 28px rgba(20,40,70,.16)}
+html.theme-ink .ro-proj select{color:var(--brand-2);background:var(--brand-soft);border-color:#b9cde8}
+html.theme-ink input,html.theme-ink select,html.theme-ink textarea{background:var(--panel);border-color:var(--line)}
+html.theme-ink input:focus,html.theme-ink select:focus,html.theme-ink textarea:focus{outline-color:var(--brand-soft);border-color:var(--brand)}
+</style></head>
+<body>
+<div id="ro"></div>
+<div class="ro-drawer" id="roDrawer"></div>
+<div id="roModal"></div>
+<div class="ro-toast" id="roToast"></div>
+
+<script>
+/* ==========================================================================
+   CIIB 科研总览（工作台内嵌页 · ciib-ro/ro.html）
+   入口：工作台左上角 ciib Logo（点击进入）。由 ciib-ro/ro.js 以 iframe 内嵌，
+   这层 iframe 同时负责样式/事件隔离与配色推送。
+   本页不内置任何数据：首次打开为空，需自己新建项目或导入 JSON 数据包。
+   数据写入独立 key：ciib_ro_proto:v3（旧 key v2 的示例数据启动时自动清除）
+   绝不读取 / 写入原工作台数据（ciib2:db）
+   ========================================================================== */
+(function(){
+'use strict';
+
+var LS_KEY   = 'ciib_ro_proto:v3';
+var OLD_KEYS = ['ciib_ro_proto:v2', 'ciib_ro_proto:theme'];
+/* 今天是渲染时的真实日期（不写死）：起止时间的天数、新建记录的默认日期都用它 */
+function pad2(n){ return n<10 ? ('0'+n) : String(n); }
+function todayISO(){
+  var d=new Date();
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+}
+var TODAY    = todayISO();
+
+/* 是否被主站以 iframe 嵌入（嵌入时左上角 logo 由主站提供、配色由主站推送） */
+var EMBEDDED = (function(){ try{ return window.self !== window.top; }catch(e){ return true; } })();
+
+/* ---------------- 小工具 ---------------- */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function uid(p){ return (p||'x')+'_'+Math.random().toString(36).slice(2,8); }
+function byId(a,id){ a=a||[]; for(var i=0;i<a.length;i++) if(a[i].id===id) return a[i]; return null; }
+function items(a,idsArr){ var out=[]; (idsArr||[]).forEach(function(id){ var x=byId(a,id); if(x) out.push(x); }); return out; }
+function uniq(a){ var o={},r=[]; (a||[]).forEach(function(x){ if(!o[x]){o[x]=1;r.push(x);} }); return r; }
+/* 完成 / 归档态统一沉底：稳定分区 —— 未完成的保持原相对顺序，已完成的整体挪到最后。
+   列表里凡是「勾选后置灰」的条目都走这里，勾上即自动落到最下方。 */
+function sinkDone(arr, isDone){
+  var a=arr||[], open=[], done=[];
+  a.forEach(function(x){ (isDone(x)?done:open).push(x); });
+  return open.concat(done);
+}
+/* 各集合的「已完成 / 已归档」判定。
+   只认「完成态」的勾选与状态（已完成 / 已归档），不动结论、假设这类
+   本身有叙事顺序的列表 —— 那些按 id 顺序读下来才是逻辑链。 */
+var DONE_OF = {
+  nextQuestions: function(q){ return !!q.done; },
+  contents:      function(c){ var s=ctState(c); return s==='已完成' || s==='已归档'; }
+};
+function sinkBy(coll, arr){ var f=DONE_OF[coll]; return f? sinkDone(arr, f) : (arr||[]); }
+function mmdd(d){ return String(d||'').slice(5).replace('-','/'); }
+function daysAgo(d){
+  var a=Date.parse(String(d)+'T00:00:00Z'), b=Date.parse(TODAY+'T00:00:00Z');
+  if(isNaN(a)) return 1e9; return Math.round((b-a)/86400000);
+}
+
+/* ---------------- 状态元信息 ---------------- */
+var RQ_STATE = { '已解决':{m:'✓',cls:'ok'}, '验证中':{m:'◐',cls:'warn'}, '待解决':{m:'?',cls:'todo'}, '已排除':{m:'×',cls:'bad'} };
+var RQ_ORDER = ['已解决','验证中','已排除','待解决'];
+var NODE_STATE = {
+  'done':{m:'✓',cls:'ok',label:'已建立'},
+  'verifying':{m:'◐',cls:'warn',label:'验证中'},
+  'pending':{m:'?',cls:'todo',label:'尚未解决'},
+  'excluded':{m:'×',cls:'bad',label:'已排除'}
+};
+var HYP_STATE = { '待验证':{m:'○',cls:'todo'}, '验证中':{m:'◐',cls:'warn'}, '已支持':{m:'✓',cls:'ok'}, '部分支持':{m:'◐',cls:'warn'}, '已排除':{m:'×',cls:'bad'} };
+var EV_STATE  = { '支持':{m:'✓',cls:'ok'}, '验证中':{m:'◐',cls:'warn'}, '分析中':{m:'◐',cls:'warn'}, '待验证':{m:'○',cls:'todo'}, '反对':{m:'×',cls:'bad'} };
+var TYPE_OPTIONS = ['遗传','表达','结构','分子','功能','驯化','算法','数据','评估','其他'];
+var TYPE_COLOR = {
+  '遗传':'#167c69','表达':'#4f8ca8','结构':'#5984c6','分子':'#a775b7','功能':'#d88b4b',
+  '驯化':'#729d51','算法':'#5a67c9','数据':'#7fae62','评估':'#cc6574','其他':'#6b7f7a'
+};
+/* 来源模块：能当「课题来源」的模块（k = contents.modKey）。
+   Todo / 科研绘图 / 实用功能不作为来源页签：前两者是日常事务、后两者不落库，
+   都不该出现在证据来源里。历史已绑定这三类的条目仍能正常显示名称（见 SRC_LABEL_EXTRA）。 */
+var SRC_MODULES = [
+  { k:'exp',     n:'实验记录' },
+  { k:'lit',     n:'文献' },
+  { k:'kb',      n:'知识库' },
+  { k:'mol',     n:'分子实验' },
+  { k:'plasmid', n:'载体图谱' },
+  { k:'tf',      n:'遗传转化' },
+  { k:'',        n:'其他' }
+];
+/* 不在来源页签里、但要保证历史条目仍显示正确名称的模块 */
+var SRC_LABEL_EXTRA = { plot:'科研绘图', todo:'Todo', tools:'实用功能' };
+/* 「全部内容」的模块筛选：来源模块 + 本项目里确实还有条目的历史模块（如 Todo） */
+function modFilterOptions(){
+  var out = SRC_MODULES.filter(function(m){ return !!m.k; }).map(function(m){ return m.n; });
+  var seen = {}; out.forEach(function(n){ seen[n]=1; });
+  Object.keys(SRC_LABEL_EXTRA).forEach(function(k){
+    var n = SRC_LABEL_EXTRA[k];
+    if(!seen[n] && contentsOf(k).length) out.push(n);
+  });
+  return out;
+}
+function srcLabel(k){
+  for(var i=0;i<SRC_MODULES.length;i++) if(SRC_MODULES[i].k===String(k)) return SRC_MODULES[i].n;
+  if(SRC_LABEL_EXTRA[String(k)]) return SRC_LABEL_EXTRA[String(k)];
+  return k||'其他';
+}
+function srcModKeyOf(label){
+  for(var i=0;i<SRC_MODULES.length;i++) if(SRC_MODULES[i].n===String(label)) return SRC_MODULES[i].k;
+  for(var k in SRC_LABEL_EXTRA) if(SRC_LABEL_EXTRA[k]===String(label)) return k;
+  return '';
+}
+var SRC_OPTIONS = SRC_MODULES.map(function(m){ return m.n; });
+/* 旧数据的来源标签 → 模块键（mock 里用过「分析 / 分子分析 / 绘图」这类写法） */
+var SRC_ALIAS = { '分析':'plot', '分子分析':'mol', '绘图':'plot', '实验':'exp', '知识':'kb' };
+var MODNAME = { lit:'文献', exp:'实验', kb:'知识', plot:'绘图', todo:'Todo' };
+
+/* ==========================================================================
+   工作台记录索引（只读）
+   --------------------------------------------------------------------------
+   嵌入工作台时，ciib-ro/ro.js 通过 postMessage 把工作台各模块的真实记录
+   （标题 / 完成态 / 更新时间 / 所在子页）推进来；本页只读它，不写回。
+
+   分工：
+   · 「来源选择」直接列工作台记录 —— 所以看到的就是工作台里的内容；
+   · 选中一条 = 同时把这条记录挂进当前项目（contents 里生成一条绑定条目
+     srcId = 工作台记录 id、fromDb = true），全部内容页因此只包含
+     「被选择进本项目的卡片」；
+   · 绑定条目的标题 / 状态 / 日期永远实时取工作台的，本地不可改。
+   ========================================================================== */
+var RODEP = { ok:false, modules:[] };
+function depMod(k){
+  for(var i=0;i<RODEP.modules.length;i++) if(RODEP.modules[i].k===String(k)) return RODEP.modules[i];
+  return null;
+}
+function depItems(k){ var m=depMod(k); return (m&&m.items)||[]; }
+function depItem(k,id){
+  var a=depItems(k);
+  for(var i=0;i<a.length;i++) if(a[i].id===id) return a[i];
+  return null;
+}
+function depCount(k){ return depItems(k).length; }
+function depReady(){ return !!RODEP.ok; }
+function depNote(k){ var m=depMod(k); return (m&&m.note)||''; }
+function hostPost(msg){
+  if(!EMBEDDED) return false;
+  try{ window.parent.postMessage(msg,'*'); return true; }catch(e){ return false; }
+}
+function reqIndex(){
+  hostPost({type:'ciib-ro-want-index'});
+}
+/* 点「打开原记录」：回传模块 + 记录 id，由工作台切页并定位 */
+function openInWorkbench(mod, id, title){
+  if(!EMBEDDED){ toast('「打开原记录」在嵌入工作台时可用：单独打开本页时跳不过去'); return false; }
+  if(!mod || !id){ toast('这条是本地补录的内容，工作台里没有对应记录'); return false; }
+  hostPost({type:'ciib-ro-open', mod:mod, id:id});
+  toast('正在工作台打开：'+srcLabel(mod)+(title?(' · '+title):''));
+  return true;
+}
+/* ---- 绑定条目：contents → 工作台记录（实时读写都走这两个函数） ---- */
+function ctBound(c){ return !!(c && c.fromDb && c.srcId); }
+function ctLive(c){ return ctBound(c) ? depItem(c.modKey, c.srcId) : null; }   /* 找不到 = 工作台已删 */
+function ctTitle(c){ var l=ctLive(c); return l? l.title : (c?(c.title||c.topic||c.id):''); }
+function ctState(c){ var l=ctLive(c); return l? (l.state||'') : (c?(c.status||''):''); }
+function ctDate(c){ var l=ctLive(c); return l? (l.date||'') : (c?(c.date||''):''); }
+function ctGone(c){ return ctBound(c) && !ctLive(c); }
+function ctSub(c){ var l=ctLive(c); return l? (l.sub||'') : ''; }
+/* 把一条工作台记录挂进本项目：已有绑定就直接复用，没有才新建 */
+function ensureContent(modKey, dbId, pid){
+  pid = pid || DB.meta.active;
+  var list = DB.contents.filter(function(c){
+    return c.projectId===pid && c.modKey===modKey && c.srcId===dbId && c.fromDb; });
+  if(list.length) return list[0];
+  var it = depItem(modKey, dbId);
+  var c = { id:uid(pid+'_ct'), projectId:pid, modKey:modKey, module:srcLabel(modKey),
+    title:(it?it.title:''), topic:'', status:(it?it.state:''), date:(it?it.date:''),
+    srcId:dbId, fromDb:true };
+  DB.contents.push(c);
+  return c;
+}
+/* 列表项的值：工作台记录用 db:<模块>:<记录 id>，本地补录用 local:<contents id> */
+function pickVal(modKey, it){ return 'db:'+modKey+':'+it.id; }
+function pickValOfContent(c){ return c ? (c.fromDb? ('db:'+c.modKey+':'+c.srcId) : ('local:'+c.id)) : ''; }
+function parsePick(v){
+  v=String(v||'');
+  if(v.indexOf('db:')===0){ var p=v.split(':'); return {from:'db', mod:p[1], id:p.slice(2).join(':')}; }
+  if(v.indexOf('local:')===0) return {from:'local', id:v.slice(6)};
+  if(v) return {from:'local', id:v};        /* 旧数据：裸 id 就是 contents id */
+  return null;
+}
+/* 来源列表里每个页签只显示它自己那一类记录：
+   「实验记录」＝实验链路，排障库 / 操作手册不属于课题来源，不在来源选择里出现
+   （keepId 是当前已经选中的那条：即使它属于被隐藏的子类也照旧列出来，
+    否则一编辑就会把原有来源清空）。 */
+var PICK_HIDE = { exp: { '排障库':1, '操作手册':1 } };
+function pickItems(modKey, keepId){
+  var a = depItems(modKey), hide = PICK_HIDE[String(modKey)];
+  if(!hide) return a;
+  return a.filter(function(it){ return !hide[it.sub||''] || it.id===keepId; });
+}
+function pickCount(modKey, keepId){ return pickItems(modKey, keepId).length; }
+/* 模块里的工作台记录（供来源选择器与「从工作台添加」用） */
+function dbPickList(modKey, pid, exclude, keepId){
+  var items = pickItems(modKey, keepId);
+  if(!exclude) return items;
+  var used = {}, pid0 = pid||DB.meta.active;
+  DB.contents.forEach(function(c){ if(c.projectId===pid0 && c.fromDb) used[c.modKey+':'+c.srcId]=1; });
+  return items.filter(function(it){ return !used[modKey+':'+it.id]; });
+}
+
+/* ---------------- 图标（沿用原工作台 SVG 语言） ---------------- */
+var ICON = {
+  home:'<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
+  plot:'<path d="M7 3c0 6 10 12 10 18M17 3C17 9 7 15 7 21M8.2 6h7.6M8.2 18h7.6"/>',
+  mol:'<path d="M9 3v6l-5 9a2 2 0 0 0 1.8 3h12.4A2 2 0 0 0 20 18l-5-9V3M8 3h8"/>',
+  exp:'<path d="M8 3h8a2 2 0 0 1 2 2v16l-6-3-6 3V5a2 2 0 0 1 2-2zM9 8h6M9 12h6"/>',
+  plasmid:'<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 7 4M12 20a8 8 0 0 1-7-4"/>',
+  tf:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  lit:'<path d="M4 4h6a3 3 0 0 1 3 3v13a3 3 0 0 0-3-3H4zM20 4h-6a3 3 0 0 0-3 3v13a3 3 0 0 1 3-3h6z"/>',
+  kb:'<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>',
+  tools:'<path d="M10 3v6L4.6 18a2 2 0 0 0 1.8 3h11.2a2 2 0 0 0 1.8-3L14 9V3M8.5 3h7M7.5 15h9"/>',
+  leaf:'<path d="M12 3c4 3 6 7 6 11a6 6 0 0 1-12 0c0-4 2-8 6-11z"/><path d="M12 8v10"/>'
+};
+var MOD_META = {
+  plot:{c:'#167c69',bg:'#e3f1ee',n:'科研绘图'}, mol:{c:'#a775b7',bg:'#f1ebf7',n:'分子实验'},
+  exp:{c:'#4f8ca8',bg:'#e6f0f6',n:'实验记录'}, lit:{c:'#cc6574',bg:'#faeaec',n:'文献'},
+  kb:{c:'#729d51',bg:'#eef4e6',n:'知识库'}, tools:{c:'#5a67c9',bg:'#e9ebfa',n:'实用功能'},
+  plasmid:{c:'#5984c6',bg:'#e8eef8',n:'载体图谱'}, tf:{c:'#d88b4b',bg:'#faeee3',n:'遗传转化'}
+};
+
+/* 本页不内置任何数据 —— 首次打开是空的，由使用者自己新建项目或导入 JSON 数据包。
+   早期版本在这里内联过一份示例数据（4 个项目），已移除：
+   留档见 D:/Ai4S/workbuddy_project/_ciib_private/ciib-科研总览-示例数据.json，
+   需要时用顶栏「⇅ 导入 / 导出」→ 替换全部数据 回灌即可。 */
+
+/* ---------------- 持久化（独立 key） ---------------- */
+const DB_EMPTY = { projects:[], questions:[], logicNodes:[], logicEdges:[], conclusions:[],
+                   hypotheses:[], evidence:[], nextQuestions:[], contents:[], meta:{active:''} };
+var DB;
+/* 一次性清理：早期版本把示例数据（4 个项目）内联在页面里，写过 key v2；
+   还写过一份自己的配色 key。两者都已废弃 —— 启动时顺手删掉，
+   删一个不存在的 key 是无副作用的空操作，所以不必加「只执行一次」的标记。 */
+function purgeOldKeys(){
+  try{ OLD_KEYS.forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
+}
+function loadDB(){
+  purgeOldKeys();
+  try{
+    var s=localStorage.getItem(LS_KEY);
+    if(s){
+      var d=JSON.parse(s);
+      if(d&&d.projects&&d.projects.length) return normalizeDB(d);
+    }
+  }catch(e){}
+  /* 没有任何数据就是「空」—— 本页不自带数据，不自动播种 */
+  return clone(DB_EMPTY);
+}
+function persist(d){
+  d = d || DB;
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(d)); }
+  catch(e){ toast('数据太大，本地保存失败（本次浏览不受影响，建议先导出 JSON 备份）'); }
+}
+function save(){ persist(DB); }
+
+/* ---------------- 界面状态 ---------------- */
+var state = {
+  view:'overview',          /* overview | emap | all */
+  edit:false,
+  evFilter:'全部',
+  expanded:[],              /* 证据地图里展开的节点 */
+  ct:{ module:'全部', status:'全部', topic:'全部', date:'全部' },
+  theme:'mint'              /* mint（薄荷，默认）| ink（靛蓝，与主站 html.theme-ink 同源） */
+};
+/* 配色跟随主工作台：本页没有自己的配色开关，也不写任何配色 key。
+   嵌入时（iframe）由 ciib-ro/ro.js 用 postMessage 推送主站当前配色；
+   单独打开时退回读主站的 localStorage「ciib2:theme」。 */
+function setTheme(t){
+  state.theme = (t==='ink') ? 'ink' : 'mint';
+  document.documentElement.classList.toggle('theme-ink', state.theme==='ink');
+}
+function initTheme(){
+  var t='';
+  try{ t = localStorage.getItem('ciib2:theme') || ''; }catch(e){}
+  setTheme(t==='ink'?'ink':'mint');
+}
+/* 主站来的消息：配色跟随 + 工作台记录索引（只读）*/
+window.addEventListener('message', function(e){
+  var d = e && e.data;
+  if(!d) return;
+  if(d.type === 'ciib-ro-theme'){ setTheme(d.theme); return; }
+  if(d.type === 'ciib-ro-index'){
+    RODEP.ok = true;
+    RODEP.modules = d.modules || [];
+    draw();     /* 标题 / 状态 / 计数都以工作台为准，收到就重绘 */
+    return;
+  }
+});
+function curP(){ return byId(DB.projects, DB.meta.active) || DB.projects[0]; }
+function P(id){ return byId(DB.projects, id); }
+function slice(coll){ var pid=DB.meta.active; return (DB[coll]||[]).filter(function(x){ return x.projectId===pid; }); }
+
+/* ==========================================================================
+   渲染
+   ========================================================================== */
+var API = {};
+API.curP = curP;
+API.slice = slice;
+
+function statusCounts(){
+  var qs = slice('questions'), m = {};
+  RQ_ORDER.forEach(function(k){ m[k]=0; });
+  qs.forEach(function(q){ if(m[q.state]==null) m[q.state]=0; m[q.state]++; });
+  return m;
+}
+function uniqTypes(){
+  /* 只列出当前项目真正用到的证据类型，并按设计稿的类型顺序输出
+     （全部 → 遗传 → 表达 → 结构 → 分子 → 功能 → 驯化）。
+     用「按序过滤」而不是 sort，顺序完全确定、不依赖比较函数。 */
+  var used = {};
+  slice('evidence').forEach(function(e){ used[e.type] = 1; });
+  var out = TYPE_OPTIONS.filter(function(t){ return used[t]; });
+  /* 兜底：用户自定义了不在类型表里的类型时追加在后 */
+  slice('evidence').forEach(function(e){ if(out.indexOf(e.type) < 0) out.push(e.type); });
+  return out;
+}
+function hypEvidenceCount(h){
+  return uniq(h.supportIds.concat(h.refuteIds)).length;
+}
+function nodeEvidenceCount(n){ return n.evidenceIds.length; }
+
+/* ---------- 顶栏 ---------- */
+function topHTML(){
+  var p = curP();
+  var projBlock;
+  if(!p){
+    /* 空白状态：没有项目可选，只留一个「新建项目」 */
+    projBlock = '<div class="ro-proj">' +
+      '<span class="ro-updated">还没有项目</span>' +
+      '<button class="mini" data-act="newproj">＋ 新建项目</button>' +
+    '</div>';
+  } else {
+    var projOpts = DB.projects.map(function(x){
+      return '<option value="'+esc(x.id)+'"'+(x.id===p.id?' selected':'')+'>'+esc(x.name)+'</option>';
+    }).join('') + '<option value="__new">＋ 新建项目…</option>';
+    projBlock = '<div class="ro-proj">' +
+      '<select data-act="projsel" title="切换项目">'+projOpts+'</select>' +
+      '<button class="mini" data-act="newproj">＋ 新建项目</button>' +
+      '<button class="mini ed-only" data-act="editproj">✎ 编辑项目</button>' +
+      '<button class="mini ed-only danger" data-act="delproj">删除项目</button>' +
+      '<span class="ro-updated">最近更新 '+esc(mmdd(p.updated))+'</span>' +
+    '</div>';
+  }
+  var tabs = [['overview','研究概览'],['emap','证据地图'],['all','全部内容']].map(function(t){
+    return '<button data-act="view" data-v="'+t[0]+'" class="'+(state.view===t[0]?'active':'')+'">'+t[1]+'</button>';
+  }).join('');
+  return '' +
+  '<header class="ro-top">' +
+    '<div class="ro-row">' +
+      /* 嵌入工作台：左上角 logo 由主站提供（主 logo 就停在这个位置），本页只留占位；
+         单独打开本文件时，本页自己显示 logo。 */
+      (EMBEDDED
+        ? '<div class="ro-slot" aria-hidden="true"></div>'
+        : '<div class="ro-brand" title="科研总览">' +
+            '<span class="lg"><svg viewBox="0 0 24 24">'+ICON.leaf+'</svg></span>' +
+            '<span><b>ciib</b><small>RESEARCH OVERVIEW</small></span>' +
+          '</div>') +
+      projBlock +
+      '<div class="ro-actions">' +
+        '<button class="chip" data-act="io" title="导入 / 导出数据与模板">⇅ 导入 / 导出</button>' +
+        '<button class="chip '+(state.edit?'active':'')+'" data-act="edit">'+(state.edit?'✓ 退出维护模式':'✎ 维护模式')+'</button>' +
+        '<button class="chip" data-act="note">说明</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="ro-tabs">' +
+      '<h1 class="ro-h1">科研总览</h1>' + tabs +
+      '<span class="tabs-sp">'+(state.edit?'<span class="edit-flag">维护模式 · 改动即时保存</span>':'')+'</span>' +
+    '</div>' +
+  '</header>';
+}
+
+/* ---------- ① 项目状态 ---------- */
+/* 项目起止时间：只展示，不参与任何推断。两个都填时给出总天数与剩余天数，
+   只填开始时间也能用（不强制设截止——很多课题本来就是滚动推进的）。 */
+function dayDiff(a, b){ return Math.round((Date.parse(b+'T00:00:00Z') - Date.parse(a+'T00:00:00Z')) / 86400000); }
+function projDatesHTML(p){
+  var s=p.start||'', e=p.end||'';
+  /* 时间那一段本身就是按钮：点一下直接改，不用绕进「编辑项目」 */
+  var out = '<div class="proj-dates"><span class="k">起止时间</span>' +
+    '<button class="pill date-pill" data-act="editdates" title="点击修改起止时间">' +
+      (s||e ? ((s?esc(s):'未设定')+' → '+(e?esc(e):'未设定')) : '未设定起止时间') +
+    '</button>';
+  if(s && e){
+    var left = dayDiff(TODAY, e), passed = dayDiff(s, TODAY);
+    out += '<span class="muted">共 '+(dayDiff(s, e)+1)+' 天 · ' +
+      (left < 0 ? ('已逾期 '+Math.abs(left)+' 天')
+                : ('已进行 '+Math.max(0, passed)+' 天 · 剩余 '+left+' 天')) + '</span>';
+  } else if(s){
+    out += '<span class="muted">已进行 '+Math.max(0, dayDiff(s, TODAY))+' 天 · 未设截止</span>';
+  } else if(e){
+    out += '<span class="muted">未设开始时间 · 截止 '+esc(e)+'</span>';
+  } else {
+    out += '<span class="muted">还没有设置（点左边即可填写）</span>';
+  }
+  out += '<button class="mini ed-only" data-act="editdates">✎ 编辑</button>';
+  return out + '</div>';
+}
+function sec1(){
+  var p = curP(), cnt = statusCounts();
+  var clsMap = { '已解决':'ok','验证中':'warn','已排除':'bad','待解决':'todo' };
+  var boxes = RQ_ORDER.map(function(k){
+    return '<button class="stat-b '+clsMap[k]+'" data-act="stat" data-s="'+k+'"><b>'+(cnt[k]||0)+'</b><span>'+k+'</span></button>';
+  }).join('');
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">1</span><h2>项目状态</h2>' +
+      '<p>用「研究问题」的状态分布描述课题进展，而不是完成度百分比</p>' +
+      '<span class="sp">' +
+        '<button class="mini ed-only" data-act="addq">＋ 新增研究问题</button>' +
+        '<button class="mini ed-only" data-act="editq">✎ 管理研究问题</button>' +
+      '</span>' +
+    '</div>' +
+    '<div class="qbox"><div class="qk">核心科学问题</div><div class="qt">'+esc(p.question)+'</div></div>' +
+    projDatesHTML(p) +
+    '<div class="stat-row">'+boxes+'</div>' +
+    '<div class="stat-hint">点击任一数字，查看该类研究问题的清单，以及它们关联的结论与证据。</div>' +
+    '<div style="margin-top:8px;font-size:12px;color:var(--mut)">状态：<span class="pill">'+esc(p.status||'进行中')+'</span>'+
+      ' 项目标签：'+(p.tags||[]).map(function(t){ return '<span class="pill">'+esc(t)+'</span>'; }).join('')+'</div>' +
+  '</section>';
+}
+
+/* ---------- ② 研究逻辑：分层 DAG（允许多分支并行） ----------
+   「阶段」怎么来的（两种，可混用）：
+   ① 自动（默认）：阶段(n) = max(阶段(所有前驱)) + 1，即最长路径。
+      于是「没有直接连线、又被同一批上游托起」的节点会自然落在同一列 → 这就是并行分支。
+   ② 手动指定：节点字段 stg 一旦有值，该节点阶段被锁定，不再被上游推动；
+      下游节点仍会按最长路径往后排。点「⟲自动」可恢复。
+   想并行：把两个节点放在同一阶段且彼此不连线；想串行：从 A 拉一条线到 B。
+   箭头用一层 SVG 在渲染后按真实坐标画出来（jsdom 无布局时自动跳过）。 */
+function nodeLevels(){
+  var ns=slice('logicNodes');
+  var es=DB.logicEdges.filter(function(e){ return e.projectId===DB.meta.active; });
+  var has={}, lock={}, lv={};
+  ns.forEach(function(n){ has[n.id]=1; lv[n.id]=0; });
+  ns.forEach(function(n){ if(n.stg!=null && +n.stg>0){ lv[n.id]=+n.stg-1; lock[n.id]=1; } });
+  var changed=true, guard=0;
+  while(changed && guard++<200){
+    changed=false;
+    es.forEach(function(e){
+      if(!has[e.from]||!has[e.to]) return;
+      if(lock[e.to]) return;                                   /* 手动阶段：锁定，不被上游推动 */
+      if(lv[e.to] < lv[e.from]+1){ lv[e.to]=lv[e.from]+1; changed=true; }
+    });
+  }
+  return lv;
+}
+function nodeAuto(n){ return !(n && n.stg!=null && +n.stg>0); }
+function stageOf(n, lv){ lv=lv||nodeLevels(); return (lv[n.id]||0)+1; }
+function maxStage(){ var lv=nodeLevels(), m=1; Object.keys(lv).forEach(function(k){ if(lv[k]+1>m) m=lv[k]+1; }); return m; }
+function dagColumns(){
+  var lv=nodeLevels(), cols={}, max=0;
+  slice('logicNodes').forEach(function(n){
+    var L=lv[n.id]||0; (cols[L]=cols[L]||[]).push(n); if(L>max) max=L;
+  });
+  Object.keys(cols).forEach(function(k){ cols[k].sort(function(a,b){ return a.order-b.order; }); });
+  var out=[];
+  for(var i=0;i<=max;i++) out.push({ lv:i+1, nodes:cols[i]||[] });
+  /* 只读视图里隐掉中间的空阶段（阶段号仍以节点自身为准）；维护模式保留，方便看出「哪一阶段是空的」 */
+  return state.edit ? out : out.filter(function(c){ return c.nodes.length>0; });
+}
+function sec2(){
+  var cols = dagColumns();
+  var body = cols.map(function(col){
+    var par = col.nodes.length>1;
+    var nodesHTML = col.nodes.map(function(n){
+      var st=NODE_STATE[n.state]||NODE_STATE.pending;
+      var auto=nodeAuto(n);
+      return '<div class="lnode dag-node '+st.cls+'" data-act="node" data-id="'+n.id+'" data-nid="'+n.id+'">' +
+        '<div class="nm"><span class="mk '+st.cls+'">'+st.m+'</span>'+esc(n.name)+'</div>' +
+        '<div class="mt"><span>证据 '+nodeEvidenceCount(n)+'</span>' +
+          '<span class="lv">阶段 '+col.lv+(auto?'':' · 指定')+'</span><span>'+st.label+'</span></div>' +
+        '<div class="bar"></div>' +
+        (state.edit ?
+          '<div class="stgrow" title="'+(auto?'当前为自动阶段（由连线推导）':'当前为手动指定阶段（不再被上游推动）')+'">' +
+            '<button class="stgbtn" data-act="stgdec" data-id="'+n.id+'" title="提前一个阶段">◂</button>' +
+            '<span class="stgn">'+(auto?'自动':'指定')+'</span>' +
+            '<button class="stgbtn" data-act="stginc" data-id="'+n.id+'" title="推后一个阶段">▸</button>' +
+            (auto?'':'<button class="stgbtn auto" data-act="stgauto" data-id="'+n.id+'" title="恢复自动推导">⟲自动</button>') +
+          '</div>' +
+          '<div class="edrow"><button class="mini" data-act="editnode" data-id="'+n.id+'">✎</button>' +
+            '<button class="mini danger" data-act="delnode" data-id="'+n.id+'">×</button></div>'
+        : '') +
+      '</div>';
+    }).join('') || '<div class="dag-empty">（本阶段暂无节点）</div>';
+    return '<div class="dag-col" data-lv="'+col.lv+'">' +
+      '<div class="dag-colhead"><span class="lvtag">阶段 '+col.lv+'</span>' +
+        (par?'<span class="btag">并行 '+col.nodes.length+' 支</span>':'') +
+        (state.edit?'<button class="plus" data-act="addnodeat" data-lv="'+col.lv+'" title="在本阶段新增节点">＋</button>':'') +
+      '</div>' +
+      '<div class="dag-stack">'+nodesHTML+'</div>' +
+    '</div>';
+  }).join('');
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">2</span><h2>研究逻辑 / Evidence Map</h2>' +
+      '<p>结论是怎么一步步建立起来的 —— 同一阶段可有多条支线并行</p>' +
+      '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addnode">＋ 新增节点</button>':'') +'</span>' +
+    '</div>' +
+    '<div class="dag"><svg class="dag-edges" xmlns="http://www.w3.org/2000/svg"></svg>'+body+'</div>' +
+    '<div class="chain-hint">按<b>阶段</b>从左到右排列；同一列里的多个节点就是<b>并行分支</b>，箭头表示谁支撑谁 —— 可分支、可汇合，不限于单链。' +
+      (state.edit
+        ? '<br><b>阶段怎么设：</b>①默认<b>自动</b>——阶段 = 最长路径（前驱阶段最大值 + 1）；②点卡片上的 <b>◂ ▸</b> <b>手动指定</b>阶段（指定后不再被上游推动，点「⟲ 自动」恢复）；③想让两条线<b>并行</b>，就让它们处在同一阶段且互相不连线；连一条箭头即变串行。'
+        : '<br>点击节点查看该环节的结论、支持证据、关联实验/文献与当前缺口。进入「✎ 维护模式」可手动调阶段。') +
+    '</div>' +
+  '</section>';
+}
+function paintEdges(){
+  var wrap=document.querySelector('.dag'); if(!wrap) return;
+  var svg=wrap.querySelector('.dag-edges'); if(!svg) return;
+  try{
+    var map={};
+    Array.prototype.slice.call(wrap.querySelectorAll('[data-nid]')).forEach(function(el){ map[el.dataset.nid]=el; });
+    var W=wrap.scrollWidth, H=wrap.clientHeight;
+    if(!W||!H){ svg.innerHTML=''; return; }
+    var d='';
+    DB.logicEdges.filter(function(e){ return e.projectId===DB.meta.active; }).forEach(function(ed){
+      var a=map[ed.from], b=map[ed.to]; if(!a||!b) return;
+      var x1=a.offsetLeft+a.offsetWidth, y1=a.offsetTop+a.offsetHeight/2;
+      var x2=b.offsetLeft,                 y2=b.offsetTop+b.offsetHeight/2;
+      var mx=(x1+x2)/2;
+      d+='<path d="M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2+'" fill="none" stroke="#b9c6c2" stroke-width="1.4" marker-end="url(#dagArw)"/>';
+    });
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    svg.style.width=W+'px'; svg.style.height=H+'px';
+    svg.innerHTML='<defs><marker id="dagArw" markerWidth="7" markerHeight="7" refX="6.5" refY="3.5" orient="auto">'+
+      '<path d="M0,0 L7,3.5 L0,7 z" fill="#b9c6c2"/></marker></defs>'+d;
+  }catch(err){ svg.innerHTML=''; }
+}
+
+/* ---------- ③④ 结论 / 假设 ---------- */
+function sec3(){
+  var cns = slice('conclusions');
+  var cHTML = cns.map(function(c){
+    var st = RQ_STATE[c.state]||RQ_STATE['已解决'];
+    return '<div class="crow" data-act="conc" data-id="'+c.id+'">' +
+      '<span class="mk '+st.cls+'">'+st.m+'</span>' +
+      '<div class="txt">'+esc(c.text)+'<div class="sub">'+c.evidenceIds.length+' 个支持证据'+
+        (c.refuteIds.length?(' · '+c.refuteIds.length+' 个反驳证据'):'')+'</div></div>' +
+      (state.edit?'<span class="mini ed-only" data-act="editconc" data-id="'+c.id+'">✎</span><span class="mini ed-only danger" data-act="delconc" data-id="'+c.id+'">×</span>':'') +
+    '</div>';
+  }).join('') || '<p class="muted" style="margin:0">暂无结论。</p>';
+  var hys = slice('hypotheses');
+  var hHTML = hys.map(function(h){
+    var st = HYP_STATE[h.state]||HYP_STATE['待验证'];
+    return '<div class="crow" data-act="hyp" data-id="'+h.id+'">' +
+      '<span class="hchip">'+esc(h.code||'H')+'</span>' +
+      '<div class="txt"><span class="mk '+st.cls+'" style="width:auto">'+st.m+'</span> '+esc(h.name)+
+        '<div class="sub">'+esc(h.state)+' · 关联证据 '+hypEvidenceCount(h)+
+        (h.next&&h.next.length?(' · 下一步：'+esc(h.next[0])):'')+'</div></div>' +
+      (state.edit?'<span class="mini ed-only" data-act="edithyp" data-id="'+h.id+'">✎</span><span class="mini ed-only danger" data-act="delhyp" data-id="'+h.id+'">×</span>':'') +
+    '</div>';
+  }).join('') || '<p class="muted" style="margin:0">暂无假设。</p>';
+
+  return '<div class="col2">' +
+    '<section class="sec" style="margin-bottom:0">' +
+      '<div class="sec-head"><span class="sec-no">3</span><h2>当前结论</h2>' +
+        '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addconc">＋ 新增</button>':'') +'</span></div>' +
+      cHTML +
+      '<div style="font-size:11.5px;color:var(--mut);margin-top:8px">结论不是普通笔记——每条都明确列出支撑它的证据。</div>' +
+    '</section>' +
+    '<section class="sec" style="margin-bottom:0">' +
+      '<div class="sec-head"><span class="sec-no">4</span><h2>当前假设</h2>' +
+        '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addhyp">＋ 新增</button>':'') +'</span></div>' +
+      hHTML +
+      '<div style="font-size:11.5px;color:var(--mut);margin-top:8px">已排除 ≠ 删除：排除一个假设本身就是科研进展，因此继续保留在逻辑中。</div>' +
+    '</section>' +
+  '</div>';
+}
+
+/* ---------- ⑤ 关键证据 ---------- */
+function evCardHTML(e){
+  var st = EV_STATE[e.state]||EV_STATE['待验证'];
+  var col = TYPE_COLOR[e.type]||'#6b7f7a';
+  return '<div class="ev-card" data-act="ev" data-id="'+e.id+'">' +
+    '<div class="ev-top"><span class="ev-name">'+esc(e.name)+'</span>' +
+      '<span class="ty" style="color:'+col+';border-color:'+col+'33;background:'+col+'12">'+esc(e.type)+'</span>' +
+      '<span class="mk '+st.cls+'" style="margin-left:auto">'+st.m+'</span></div>' +
+    (e.finding?'<span class="ev-find">'+esc(e.finding)+'</span>':'') +
+    '<div class="ev-foot">' +
+      '<span class="ev-src">'+esc(evSrcText(e))+evFlagHTML(e)+'</span>' +
+      '<span class="ct-tools">' +
+        (evCanOpen(e) ? '<button data-act="opensrc" data-id="'+e.id+'">打开原记录 →</button>' : '') +
+        (state.edit
+          ? '<button data-act="editev" data-id="'+e.id+'">✎</button><button data-act="delev" data-id="'+e.id+'">×</button>'
+          : '') +
+      '</span>' +
+    '</div>' +
+  '</div>';
+}
+function sec5(){
+  var all = slice('evidence');
+  var types = ['全部'].concat(uniqTypes());
+  if(types.indexOf(state.evFilter)<0) state.evFilter='全部';
+  var list = state.evFilter==='全部' ? all : all.filter(function(e){ return e.type===state.evFilter; });
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">5</span><h2>关键证据</h2>' +
+      '<p>按科研证据类型聚合，而不是按原模块分类</p>' +
+      '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addev">＋ 新增证据</button>':'') +'</span>' +
+    '</div>' +
+    '<div class="ref-note">这些卡片只是<strong>引用</strong>：先在工作台里记下实验 / 文献 / 知识条目，再把它们选进项目，以 Evidence Card 形式引用 —— 这里不会另存一套记录，改动也不会回写工作台。</div>' +
+    '<div class="ev-filters">' + types.map(function(t){
+      return '<button class="chip'+(state.evFilter===t?' active':'')+'" data-act="evfilter" data-t="'+esc(t)+'">'+esc(t)+'</button>';
+    }).join('') + '</div>' +
+    (list.length ? '<div class="ev-grid">'+list.map(evCardHTML).join('')+'</div>'
+                 : '<p class="muted" style="margin:0">该类型下暂无证据。</p>') +
+  '</section>';
+}
+
+/* ---------- ⑥ 下一步最关键的问题 ---------- */
+function sec6(){
+  var nx = sinkBy('nextQuestions', slice('nextQuestions'));
+  var html = nx.map(function(q,i){
+    var h = q.hypothesisIds.length? byId(slice('hypotheses'), q.hypothesisIds[0]) : null;
+    var why = h ? ('关联假设 '+esc(h.code||'')+'：'+esc(h.name)) : '尚未关联假设';
+    if(q.missing&&q.missing.length) why += ' · 缺失证据：'+esc(q.missing.join('、'));
+    return '<div class="nq'+(q.done?' done':'')+'">' +
+      '<span class="no">'+String(i+1).padStart(2,'0')+'</span>' +
+      '<div class="body">' +
+        '<div class="t">'+esc(q.text)+'<span class="prio '+esc(q.prio)+'">优先级 '+esc(q.prio)+'</span></div>' +
+        '<div class="why">'+why+'</div>' +
+        '<div class="acts">' +
+          '<button class="mini" data-act="nqev" data-id="'+q.id+'">'+(q.acts&&q.acts[0]||'查看相关证据')+'</button>' +
+          '<button class="mini" data-act="nqadd" data-id="'+q.id+'">'+(q.acts&&q.acts[1]||'添加验证')+'</button>' +
+          '<button class="mini'+(state.edit?'':' ed-only')+'" data-act="doneq" data-id="'+q.id+'">'+(q.done?'↺ 恢复':'✓ 标记完成')+'</button>' +
+          '<button class="mini ed-only" data-act="editnq" data-id="'+q.id+'">✎ 编辑</button>' +
+          '<button class="mini ed-only danger" data-act="delnq" data-id="'+q.id+'">× 删除</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('') || '<p class="muted" style="margin:0">暂无待办问题。</p>';
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">6</span><h2>下一步最关键的问题</h2>' +
+      '<p>不是「做 Dual-LUC」，而是「为什么要做 Dual-LUC」</p>' +
+      '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addnq">＋ 新增问题</button>':'') +'</span>' +
+    '</div>' + html +
+  '</section>';
+}
+
+/* ---------- 研究概览 ---------- */
+function overviewHTML(){
+  return sec1() + sec2() + sec3() + sec5() + sec6();
+}
+
+/* ---------- 关联实验 / 文献（抽屉与证据地图共用） ----------
+   两类来源，界面上分开标注，避免重复计数：
+   ① 自动：从本环节的「支持证据」派生 —— 取每条证据的 来源模块 + 来源编号 去重。
+      只读，随证据变化自动更新，不需要单独维护。
+   ② 手动：节点自身字段 expIds / litIds，是真实外键，指向本项目 contents 里的条目；
+      其中绑定了工作台记录的（fromDb）再通过 srcId 指向工作台的实验记录 / 文献记录，
+      点一下就能切过去。必须手动挂接，因为有些实验/文献是该环节的支撑材料但还没提炼成 Evidence。
+   ---------------------------------------------------------------------- */
+function nodeRefsHTML(n){
+  var evs = items(slice('evidence'), n.evidenceIds);
+  var seen={}, auto=[];
+  evs.forEach(function(e){
+    var s=evSrcText(e);
+    if(!s) return;
+    if(!seen[s]){ seen[s]=1; auto.push(s); }
+  });
+  var man = (n.expIds||[]).concat(n.litIds||[])
+    .map(function(id){ return byId(DB.contents,id); }).filter(Boolean);
+  var html = '<div class="lnk-grp"><span class="lnk-tag">自动</span><div class="lnk-body">' +
+    (auto.length ? auto.map(function(s){
+        return '<span class="pill" title="自动派生：来自该环节支持证据的来源">'+esc(s)+'</span>';
+      }).join('')
+      : '<span class="muted">—</span>') +
+    '</div></div>';
+  html += '<div class="lnk-grp"><span class="lnk-tag man">手动</span><div class="lnk-body">' +
+    (man.length ? man.map(function(c){
+        var tip = ctBound(c)
+          ? (ctGone(c) ? '工作台里这条记录已删除' : '点击打开工作台里的原记录')
+          : '本地补录：工作台里没有原记录';
+        return '<span class="pill lnk" data-act="openct" data-id="'+c.id+'" title="'+esc(tip)+'">' +
+          esc(modName(c.modKey))+' · '+esc(ctTitle(c)) +
+          (ctBound(c) && ctGone(c) ? ' <span class="ct-src gone">已删除</span>' : '') +
+          (state.edit ? '<span class="x" data-act="unlinkref" data-id="'+n.id+'" data-ref="'+c.id+'" title="解除关联（只解除关系，不删除原记录）">×</span>' : '') +
+          '</span>';
+      }).join('')
+      : '<span class="muted">'+(state.edit?'尚未手动关联':'—')+'</span>') +
+    '</div></div>';
+  if(state.edit) html += '<button class="mini" data-act="linknode" data-id="'+n.id+'">＋ 关联实验 / 文献</button>';
+  return html;
+}
+
+/* ---------- 证据地图（放大 Research Logic） ---------- */
+function nodeDetailHTML(n){
+  var evs = items(slice('evidence'), n.evidenceIds);
+  var hys = items(slice('hypotheses'), n.hypothesisIds);
+  var st = NODE_STATE[n.state]||NODE_STATE.pending;
+  var sup = evs.filter(function(e){ return e.state==='支持'; });
+  var mid = evs.filter(function(e){ return e.state==='验证中'||e.state==='分析中'; });
+  var rest= evs.filter(function(e){ return sup.indexOf(e)<0 && mid.indexOf(e)<0; });
+  function evLine(e){ return '<span class="pill '+(e.state==='支持'?'ok':(e.state==='反对'?'bad':'warn'))+'">'+esc(e.name)+'</span>'; }
+  return '<div class="emdetail">' +
+    '<div class="dl">' +
+      '<span class="k">状态</span><span><span class="mk '+st.cls+'">'+st.m+'</span> '+st.label+'</span>' +
+      '<span class="k">当前结论</span><span>'+esc(n.note||'—')+'</span>' +
+      '<span class="k">支持证据</span><span>'+(sup.length?sup.map(evLine).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">验证中</span><span>'+(mid.length?mid.map(evLine).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">其它</span><span>'+(rest.length?rest.map(evLine).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">关联假设</span><span>'+(hys.length?hys.map(function(h){ return '<span class="pill">'+esc(h.code)+' '+esc(h.name)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">关联实验/文献</span><span>'+nodeRefsHTML(n)+'</span>' +
+      '<span class="k">当前缺口</span><span>'+(n.gap&&n.gap.length?n.gap.map(function(g){ return '<span class="pill warn">□ '+esc(g)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+    '</div>' +
+    '<div style="margin-top:9px"><button class="mini" data-act="nodeev" data-id="'+n.id+'">查看相关证据</button></div>' +
+  '</div>';
+}
+function emapHTML(){
+  var cols = dagColumns(), lvOf={}, parOf={};
+  cols.forEach(function(c){ c.nodes.forEach(function(n){ lvOf[n.id]=c.lv; parOf[n.id]=c.nodes.length>1; }); });
+  var nodes = slice('logicNodes').sort(function(a,b){
+    var d=(lvOf[a.id]||0)-(lvOf[b.id]||0); return d!==0?d:(a.order-b.order);
+  });
+  var body = nodes.map(function(n,i){
+    var st = NODE_STATE[n.state]||NODE_STATE.pending;
+    var open = state.expanded.indexOf(n.id)>=0;
+    var par = !!parOf[n.id];
+    return '<div class="emrow '+st.cls+'">' +
+      '<div class="emgutter"><span class="dot"></span>'+(i<nodes.length-1?'<span class="line"></span>':'<span class="line hide"></span>')+'</div>' +
+      '<div class="embody">' +
+        '<div class="emcard" data-act="emnode" data-id="'+n.id+'">' +
+          '<div class="t"><span class="mk '+st.cls+'">'+st.m+'</span>'+esc(n.name)+
+            '<span class="emlv'+(par?' par':'')+'" style="margin-left:auto">阶段 '+(lvOf[n.id]||1)+(par?' · 并行':'')+(nodeAuto(n)?'':' · 指定')+'</span>'+
+            '<span style="font-size:11.5px;color:var(--mut);font-weight:400">证据 '+nodeEvidenceCount(n)+' · '+st.label+'</span></div>' +
+          '<div class="m">'+esc(n.note||'')+'</div>' +
+          (n.gap&&n.gap.length?'<div class="gap">缺口：'+esc(n.gap.join('、'))+'</div>':'') +
+        '</div>' +
+        (open?nodeDetailHTML(n):'') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">◈</span><h2>证据地图 · 研究逻辑全展开</h2>' +
+      '<p>按阶段排列；标「并行」的环节说明该阶段有多条支线同时推进。点击任一环节展开它的结论、证据、关联对象与缺口</p>' +
+      '<span class="sp">'+ (state.edit?'<button class="mini" data-act="addnode">＋ 新增节点</button>':'') +'</span></div>' +
+    '<div class="emap">'+body+'</div>' +
+  '</section>';
+}
+
+/* ---------- 全部内容 ----------
+   只列「被选择进本项目」的卡片：绑定工作台记录的那些，标题 / 状态 / 日期实时取
+   工作台的值（本页改不了）；本地补录的条目保留原样，可以继续编辑，方便逐步迁移。 */
+function allHTML(){
+  var pid = DB.meta.active;
+  var cs = DB.contents.filter(function(c){ return c.projectId===pid; });
+  var byMod = {};
+  Object.keys(MODNAME).forEach(function(k){ byMod[k]=0; });
+  cs.forEach(function(c){ byMod[c.modKey]=(byMod[c.modKey]||0)+1; });
+  var sum = Object.keys(MODNAME).map(function(k){
+    return '<div class="s"><b>'+(byMod[k]||0)+'</b><span>'+MODNAME[k]+'</span></div>';
+  }).join('');
+  var topics = uniq(cs.map(function(c){ return c.topic; }).filter(Boolean));
+  var stSet  = uniq(cs.map(function(c){ return ctState(c); }));
+  var ST_ORDER = ['已完成','进行中','待处理'];
+  var stOpts = ['全部'].concat(ST_ORDER.filter(function(s){ return stSet.indexOf(s)>=0; }))
+                        .concat(stSet.filter(function(s){ return s && ST_ORDER.indexOf(s)<0; }));
+  var list = cs.filter(function(c){
+    if(state.ct.module!=='全部'){
+      var want = srcModKeyOf(state.ct.module) || state.ct.module;
+      if(String(c.modKey||'')!==String(want) && (c.module||'')!==state.ct.module) return false;
+    }
+    if(state.ct.status!=='全部' && ctState(c)!==state.ct.status) return false;
+    if(state.ct.topic !=='全部' && c.topic !==state.ct.topic ) return false;
+    if(state.ct.date!=='全部'){
+      var lim = state.ct.date==='近 7 天'?7:(state.ct.date==='近 30 天'?30:90);
+      if(daysAgo(ctDate(c))>lim) return false;
+    }
+    return true;
+  }).sort(function(a,b){
+    var da=ctDate(a), db_=ctDate(b);
+    if(da===db_) return 0;
+    return da<db_?1:-1;
+  });
+  /* 已完成 / 已归档的条目统一沉底（其余仍按日期倒序） */
+  list = sinkBy('contents', list);
+  function sel(name,opts,cur){
+    return '<label>'+name+'<select data-act="ctsel" data-k="'+opts.k+'">'+opts.list.map(function(o){
+      return '<option'+(o===cur?' selected':'')+'>'+esc(o)+'</option>';
+    }).join('')+'</select></label>';
+  }
+  var cards = list.slice(0,120).map(function(c){
+    var meta = MOD_META[c.modKey]||{c:'#6b7f7a',bg:'#f2f4f3'};
+    var bound = ctBound(c), gone = ctGone(c);
+    var flag = gone  ? '<span class="ct-src gone">工作台已删除</span>'
+             : bound ? '<span class="ct-src db">工作台</span>'
+             : '<span class="ct-src">本地补录</span>';
+    return '<div class="ct-card'+(DONE_OF.contents(c)?' done':'')+'"'+(gone?' style="opacity:.72"':'')+'>' +
+      '<div class="h"><span class="mm" style="background:'+meta.bg+';color:'+meta.c+'">'+esc(c.module||srcLabel(c.modKey))+'</span>' +
+      '<span class="ttl">'+esc(ctTitle(c))+'</span>' + flag + '</div>' +
+      '<div class="mt"><span>'+esc(c.topic||'')+'</span><span>'+esc(ctState(c)||'—')+'</span><span>'+esc(ctDate(c)||'')+'</span>' +
+        (ctSub(c)?'<span>'+esc(ctSub(c))+'</span>':'')+'</div>' +
+      '<div class="as">' +
+        (bound && !gone ? '<button class="mini" data-act="openct" data-id="'+c.id+'">打开原记录 →</button>' : '') +
+        (state.edit && (!bound || gone) ? '<button class="mini" data-act="bindct" data-id="'+c.id+'">绑定工作台记录…</button>' : '') +
+        (state.edit ? '<button class="mini" data-act="editct" data-id="'+c.id+'">✎ 编辑</button>' +
+                      '<button class="mini danger" data-act="delct" data-id="'+c.id+'">× 删除</button>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var nBind = cs.filter(ctBound).length, nGone = cs.filter(ctGone).length, nLocal = cs.length - nBind;
+  return '<section class="sec">' +
+    '<div class="sec-head"><span class="sec-no">◈</span><h2>全部内容 · 项目标签视图</h2>' +
+      '<p>只列<b>被选择进本项目</b>的卡片；绑定工作台记录的条目，标题 / 状态 / 日期实时来自工作台（本页改不了）</p>' +
+      '<span class="sp">' + (state.edit
+        ? '<button class="mini" data-act="addfromdb">＋ 从工作台添加记录</button>' +
+          '<button class="mini" data-act="syncct" title="绑定条目按工作台刷新；本地补录里与工作台同名的记录会自动认领绑定">⇅ 与工作台核对</button>' +
+          '<button class="mini" data-act="addct">＋ 本地补录</button>'
+        : '') + '</span></div>' +
+    (depReady() ? '' :
+      '<div class="ref-note warn">还没有连上工作台 —— 现在只显示本地补录的条目。请从工作台左上角 Logo 进入科研总览（本页单独打开时读不到工作台数据）。</div>') +
+    '<div class="ct-sum">'+sum+'</div>' +
+    '<div class="ct-filters">' +
+      '<label>模块<select data-act="ctsel" data-k="module">'+['全部'].concat(modFilterOptions()).map(function(o){
+        return '<option'+(o===state.ct.module?' selected':'')+'>'+esc(o)+'</option>'; }).join('')+'</select></label>' +
+      '<label>状态<select data-act="ctsel" data-k="status">'+stOpts.map(function(o){
+        return '<option'+(o===state.ct.status?' selected':'')+'>'+esc(o)+'</option>'; }).join('')+'</select></label>' +
+      '<label>主题<select data-act="ctsel" data-k="topic">'+['全部'].concat(topics).map(function(o){
+        return '<option'+(o===state.ct.topic?' selected':'')+'>'+esc(o)+'</option>'; }).join('')+'</select></label>' +
+      '<label>日期<select data-act="ctsel" data-k="date">'+['全部','近 7 天','近 30 天','近 90 天'].map(function(o){
+        return '<option'+(o===state.ct.date?' selected':'')+'>'+esc(o)+'</option>'; }).join('')+'</select></label>' +
+      '<span class="muted" style="font-size:12px;margin-left:auto">命中 '+list.length+' 条 / 共 '+cs.length+' 条' +
+        '（工作台 '+nBind+' · 本地补录 '+nLocal+(nGone?(' · 已失效 '+nGone):'')+'）</span>' +
+    '</div>' +
+    (cards?('<div class="ct-list">'+cards+'</div>')
+          :'<p class="muted" style="margin:0">'+(state.edit? '这个项目还没有内容卡片。点右上角「＋ 从工作台添加记录」把工作台里的实验 / 文献 / 知识条目选进来。' : '当前筛选条件下没有内容。')+'</p>') +
+  '</section>';
+}
+
+/* ==========================================================================
+   渲染调度
+   ========================================================================== */
+/* 空白状态：本页不自带数据，第一次打开看到的就是这一屏 */
+function emptyHTML(){
+  return '<div class="ro-empty">' +
+    '<div class="re-ico"><svg viewBox="0 0 24 24">'+ICON.leaf+'</svg></div>' +
+    '<h2>还没有项目</h2>' +
+    '<p>这一页不会自带任何数据。先<b>新建一个项目</b>把研究逻辑立起来，' +
+      '或者把之前导出的 JSON 数据包<b>导入</b>进来。</p>' +
+    '<div class="re-btns">' +
+      '<button class="primary" data-act="newproj">＋ 新建项目</button>' +
+      '<button class="ghost" data-act="io">⇅ 导入数据包</button>' +
+    '</div>' +
+    '<div class="re-tip">本页的研究逻辑存在本浏览器的 <code>'+esc(LS_KEY)+'</code>；' +
+      '工作台里的记录（实验记录 / 文献 / 知识库 / 待办…）在这里是<b>只读引用</b>，' +
+      '从工作台左上角 Logo 进入时会实时读取。顶栏「⇅ 导入 / 导出」可整包备份与回灌。</div>' +
+  '</div>';
+}
+function draw(){
+  var ro = document.getElementById('ro');
+  var empty = !DB.projects.length;
+  if(!document.getElementById('roView')){
+    ro.innerHTML = topHTML() + '<main class="ro-view" id="roView"></main>';
+  } else {
+    ro.querySelector('.ro-top').outerHTML = topHTML();
+  }
+  var v = document.getElementById('roView');
+  v.className = 'ro-view' + (state.edit?' editing':'');
+  if(empty){ v.innerHTML = emptyHTML(); return; }
+  v.innerHTML = state.view==='emap' ? emapHTML() : (state.view==='all' ? allHTML() : overviewHTML());
+  if(state.view==='overview') paintEdges();   /* 分层 DAG 的连线按真实坐标绘制 */
+}
+/* 窗口尺寸变化 → 重画 DAG 连线（防抖） */
+var reT=null;
+window.addEventListener('resize', function(){
+  clearTimeout(reT); reT=setTimeout(function(){ if(state.view==='overview') paintEdges(); }, 120);
+});
+
+/* ==========================================================================
+   抽屉 / 弹窗 / toast
+   ========================================================================== */
+var toastT=null;
+function toast(msg){
+  var el=document.getElementById('roToast');
+  el.textContent=msg; el.classList.add('on');
+  clearTimeout(toastT); toastT=setTimeout(function(){ el.classList.remove('on'); },2200);
+}
+function drawer(title, html){
+  var d=document.getElementById('roDrawer');
+  d.innerHTML='<div class="dh"><h3>'+esc(title)+'</h3><button type="button" data-act="closedrawer">×</button></div><div class="db">'+html+'</div>';
+  d.classList.add('open');
+}
+function closeDrawer(){ document.getElementById('roDrawer').classList.remove('open'); }
+function openModal(title, bodyHTML, onReady){
+  var root=document.getElementById('roModal');
+  root.innerHTML='<div class="modal-shade"><div class="modal"><div class="modal-head"><h2>'+esc(title)+'</h2>'+
+    '<button type="button" data-act="closemodal">×</button></div><div class="modal-body">'+bodyHTML+'</div></div></div>';
+  var close=function(){ root.innerHTML=''; };
+  root.querySelector('[data-act="closemodal"]').onclick=close;
+  root.querySelector('.modal-shade').addEventListener('mousedown',function(e){ if(e.target===e.currentTarget) close(); });
+  if(onReady) onReady(root.querySelector('.modal-body'), close);
+  return close;
+}
+function closeModal(){ document.getElementById('roModal').innerHTML=''; }
+function optList(arr,cur){
+  return arr.map(function(o){ return '<option'+(o===cur?' selected':'')+'>'+esc(o)+'</option>'; }).join('');
+}
+function labelOf(x){ return x.name||x.text||x.code||x.title||x.id; }
+
+/* ---- 多选控件 ----------------------------------------------------------
+   不用原生 <select multiple>：原生在 Windows 下必须按住 Ctrl 才能加选，
+   单击会清掉其它选择，用户会以为「无法多选」。改为勾选框列表，点一下就切换。 */
+function multiList(arr, ids, rows, key){
+  if(!arr.length) return '<div class="muted" style="font-size:12px">（暂无可选项）</div>';
+  ids = ids||[];
+  var h = (rows||4)*25 + 30;
+  return '<div class="msel" data-msel="'+esc(key||'')+'" style="max-height:'+h+'px">' +
+    '<div class="msel-bar"><span class="msel-n">已选 <b class="msel-c">'+ids.length+'</b> / '+arr.length+'</span>' +
+      '<button type="button" data-act="mselall" data-key="'+esc(key||'')+'">全选</button>' +
+      '<button type="button" data-act="mselnone" data-key="'+esc(key||'')+'">清空</button></div>' +
+    arr.map(function(x){
+      var on = ids.indexOf(x.id)>=0;
+      return '<label class="msel-i'+(on?' on':'')+'"><input type="checkbox" value="'+esc(x.id)+'"'+(on?' checked':'')+'>'+
+        '<span>'+esc(labelOf(x))+'</span></label>';
+    }).join('') +
+  '</div>';
+}
+function getMulti(body,key){
+  var box=body.querySelector('.msel[data-msel="'+key+'"]'); if(!box) return [];
+  return Array.prototype.slice.call(box.querySelectorAll('input[type=checkbox]'))
+    .filter(function(i){ return i.checked; }).map(function(i){ return i.value; });
+}
+function refreshMsel(box){
+  if(!box) return;
+  var c=box.querySelectorAll('input[type=checkbox]:checked').length;
+  var el=box.querySelector('.msel-c'); if(el) el.textContent=c;
+  Array.prototype.slice.call(box.querySelectorAll('.msel-i')).forEach(function(l){
+    var i=l.querySelector('input'); l.classList.toggle('on', !!(i&&i.checked));
+  });
+}
+
+/* ---- 模块内卡片（contents）：来源选择 / 关联引用都走这里 ------------------
+   用户不该被要求记住「来源编号」。所有需要指向 证据 / 实验 / 文献 的地方，
+   一律先选模块，再列出该模块里的卡片标题让人挑。 */
+function contentsOf(modKey, pid){
+  pid = pid || DB.meta.active;
+  return DB.contents.filter(function(c){ return c.projectId===pid && c.modKey===modKey; })
+    .sort(function(a,b){ return String(b.date||'') < String(a.date||'') ? -1 : 1; });
+}
+function cardLabel(c){ return c ? (c.title||c.topic||c.id) : ''; }
+function modName(modKey){
+  if(MODNAME[modKey]) return MODNAME[modKey];
+  var l=srcLabel(modKey===undefined?'':modKey);
+  return l||'记录';
+}
+function contentCount(modKey, pid){
+  var n = contentsOf(modKey, pid).length;
+  return n;
+}
+/* 单选的来源列表（证据来源）
+   先列「工作台」该模块的真实记录（实时只读：标题 / 状态 / 日期都以工作台为准），
+   再列本地补录的条目（它们在工作台里没有原记录）。选工作台记录 = 同时把它
+   挂进当前项目（保存时走 ensureContent）。 */
+function cardPickHTML(modKey, selVal, name){
+  var sel = parsePick(selVal);
+  var keepId = (sel && sel.from==='db' && sel.mod===String(modKey||'')) ? sel.id : '';
+  var tabs = '<div class="modtabs" data-modtabs="'+esc(name)+'">' + SRC_MODULES.map(function(m){
+    var kp = (String(m.k||'')===String(modKey||'')) ? keepId : '';
+    var n = m.k ? (depReady()? pickCount(m.k, kp) : 0) : 0;
+    var loc = m.k ? contentsOf(m.k).filter(function(c){ return !c.fromDb; }).length : 0;
+    return '<button type="button" class="modtab'+(m.k===String(modKey||'')?' on':'')+'" data-act="srcmod" data-mod="'+esc(m.k)+'" data-for="'+esc(name)+'">'+
+      esc(m.n)+'<span class="n">'+n+(loc?('+'+loc):'')+'</span></button>';
+  }).join('') + '</div>';
+  if(!modKey)
+    return tabs + '<div class="msel" data-pick="'+esc(name)+'" style="padding:6px">'+
+      '<input type="text" data-pickfree="'+esc(name)+'" placeholder="自己写来源标题（例如：一次未入库的预实验）" value="">'+
+      '<div class="multi-hint">选「其他」时不会挂外键，只留一条文字说明。</div></div>';
+  var db = dbPickList(modKey, DB.meta.active, false, keepId), local = contentsOf(modKey).filter(function(c){ return !c.fromDb; });
+  var html = '';
+  if(db.length){
+    html += '<div class="pick-grp">工作台记录 · 实时读取（标题 / 状态 / 日期都以工作台为准；状态由各模块自己的阶段、勾选、构建进度自动派生，没有完成态概念的显示 —）</div>' +
+      '<div class="msel" data-pick="'+esc(name)+'" style="max-height:172px">' + db.map(function(it){
+        var v=pickVal(modKey,it), on=(v===selVal);
+        return '<label class="pick-i'+(on?' on':'')+'" title="'+esc((it.sub?it.sub+' · ':'')+it.title)+'">'+
+          '<input type="radio" name="'+esc(name)+'" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+          '<span class="tt">'+esc(it.title)+'</span>'+
+          '<span class="mk2">'+esc(it.state||'—')+'</span>'+
+          '<span class="dt">'+esc(it.date||'')+'</span></label>';
+      }).join('') + '</div>';
+  }
+  if(local.length){
+    html += '<div class="pick-grp">本地补录 · 工作台里没有原记录</div>' +
+      '<div class="msel" data-pick="'+esc(name)+'" style="max-height:120px">' + local.map(function(c){
+        var v='local:'+c.id, on=(v===selVal);
+        return '<label class="pick-i'+(on?' on':'')+'">'+
+          '<input type="radio" name="'+esc(name)+'" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+          '<span class="tt">'+esc(cardLabel(c))+'</span>'+
+          '<span class="mk2">'+esc(c.status||'—')+'</span>'+
+          '<span class="dt">'+esc(c.date||'')+'</span></label>';
+      }).join('') + '</div>';
+  }
+  if(!html){
+    var note = depNote(modKey);
+    return tabs + '<div class="pick-empty">' + (depReady()
+      ? ('工作台「'+esc(srcLabel(modKey))+'」里还没有记录。'+(note?('（'+esc(note)+'）'):'')+'可以先去工作台建这条记录，或选「其他」手填标题。')
+      : '未连接工作台，读不到该模块的记录。请从工作台里打开科研总览，或选「其他」手填标题。') + '</div>';
+  }
+  return tabs + html;
+}
+function getPick(body,name){
+  /* 列表可能分「工作台 / 本地补录」两组，取全表单里唯一被选中的那个 */
+  var els=body.querySelectorAll('.msel[data-pick="'+name+'"] input[type=radio]:checked');
+  return els.length? els[0].value : '';
+}
+function getPickFree(body,name){
+  var b=body.querySelector('input[data-pickfree="'+name+'"]'); return b?String(b.value||'').trim():'';
+}
+/* 证据来源的展示文案：模块 · 卡片标题（永远不显示裸编号） */
+function evSrcText(e){
+  if(!e) return '';
+  var mod = srcLabel(e.srcKey||'');
+  var title = evRefTitle(e);
+  if(!e.srcKey && !title) return e.src||'—';
+  return title ? (mod+' · '+title) : mod;
+}
+function evRefTitle(e){
+  if(!e) return '';
+  if(e.srcId){
+    var c=byId(DB.contents, e.srcId);
+    if(c) return ctTitle(c);                       /* 绑定工作台的取实时标题 */
+    var it=depItem(e.srcKey||'', e.srcId);          /* 兜底：存的就是工作台记录 id */
+    if(it) return it.title;
+  }
+  return e.ref||'';
+}
+/* 来源的落实状态：''=正常绑定 / 'local'=本地补录 / 'free'=手填 / 'gone'=工作台已删除 */
+function evSrcFlag(e){
+  if(!e) return '';
+  if(!e.srcId) return e.ref? 'free' : '';
+  var c=byId(DB.contents, e.srcId);
+  if(c) return c.fromDb ? (ctGone(c)? 'gone' : '') : 'local';
+  return depItem(e.srcKey||'', e.srcId) ? '' : 'gone';
+}
+function evFlagHTML(e){
+  var f=evSrcFlag(e);
+  if(!f) return '';
+  var txt={ local:'本地补录', free:'手填来源', gone:'工作台已删除' }[f] || '';
+  return '<span class="ct-src'+(f==='gone'?' gone':'')+'" style="margin-left:6px">'+esc(txt)+'</span>';
+}
+/* 能不能跳到原记录：来源绑定了工作台记录就行 */
+function evCanOpen(e){
+  if(!e) return false;
+  if(e.srcId){
+    var c=byId(DB.contents, e.srcId);
+    if(c) return c.fromDb && !ctGone(c);
+  }
+  return !!depItem(e.srcKey||'', e.srcId||'');
+}
+/* 打开一条内容的原记录（工作台切页 + 定位） */
+function openContent(c){
+  if(!c) return;
+  if(ctBound(c)){
+    if(ctGone(c)){ toast('工作台里这条记录已经删除了（'+srcLabel(c.modKey)+' · '+ctTitle(c)+'）'); return; }
+    openInWorkbench(c.modKey, c.srcId, ctTitle(c));
+    return;
+  }
+  toast('这条是本地补录的内容（'+cardLabel(c)+'）：工作台里没有对应记录，跳不过去');
+}
+/* ---- 证据表单里的「结论 / 假设 / 节点」多选：跟随所属项目 ------------------
+   所属项目一改，下面三组列表立刻切到新项目的对象；原来勾中的按「名称」尽量
+   保留（新项目里同名就续上，不存在就解除）。 */
+function evRefHTML(pid, sel){
+  sel = sel||{};
+  var cols = DB.conclusions.filter(function(c){ return c.projectId===pid; });
+  var hyps = DB.hypotheses.filter(function(h){ return h.projectId===pid; });
+  var nds  = DB.logicNodes.filter(function(n){ return n.projectId===pid; })
+    .slice().sort(function(a,b){ return a.order-b.order; });
+  return '' +
+    '<div class="field full"><span>支持的结论（多选 · 点一下即选中）</span>'+multiList(cols, sel.cn||[], 3, 'cn')+'</div>'+
+    '<div class="field full"><span>反驳的结论（多选 · 点一下即选中）</span>'+multiList(cols, sel.rcn||[], 2, 'rcn')+'</div>'+
+    '<div class="field full"><span>支持的假设（多选 · 点一下即选中）</span>'+multiList(hyps, sel.hy||[], 3, 'hy')+'</div>'+
+    '<div class="field full"><span>反对的假设（多选 · 点一下即选中）</span>'+multiList(hyps, sel.rhy||[], 2, 'rhy')+'</div>'+
+    '<div class="field full"><span>关联逻辑节点（多选 · 点一下即选中）</span>'+multiList(nds, sel.nd||[], 3, 'nd')+'</div>'+
+    '<div class="field full multi-hint" data-refhint>'+(sel._note||'')+'</div>'+
+    '<div class="field full multi-hint">双向同步：保存后会自动把镜像关系写到结论 / 假设 / 节点上；两侧都能独立编辑，也可以只留一侧（证据先建好、暂时不挂任何结论）。</div>';
+}
+var REF_SPEC = [['cn','conclusions','text'],['rcn','conclusions','text'],
+                ['hy','hypotheses','name'],['rhy','hypotheses','name'],
+                ['nd','logicNodes','name']];
+function findLab(coll, pid, lab, field){
+  var list=DB[coll]||[];
+  for(var i=0;i<list.length;i++)
+    if(list[i].projectId===pid && String(list[i][field]==null?'':list[i][field])===lab) return list[i].id;
+  return '';
+}
+function carryRefs(box, newPid){
+  var out={}, matched=0, lost=0;
+  REF_SPEC.forEach(function(sp){
+    var ids=getMulti(box, sp[0]);
+    var next=[];
+    ids.forEach(function(x){
+      var o=byId(DB[sp[1]], x); if(!o) return;
+      var L=String(o[sp[2]]==null?'':o[sp[2]]); if(!L) return;
+      var id=findLab(sp[1], newPid, L, sp[2]);
+      if(id) next.push(id); else lost++;
+    });
+    matched += next.length;
+    out[sp[0]] = uniq(next);
+  });
+  out._note = (matched||lost)
+    ? ('已切换到新项目：按名称自动匹配 <b>'+matched+'</b> 项'+(lost?('；另有 <b>'+lost+'</b> 项在新项目里不存在，已解除'):'')+'。保存后生效。')
+    : '';
+  return out;
+}
+function onlyPid(coll, ids, pid){
+  return (ids||[]).filter(function(x){ var o=byId(DB[coll],x); return o && o.projectId===pid; });
+}
+function pickModKey(box, name){
+  var t=box.querySelector('.modtabs[data-modtabs="'+name+'"] .modtab.on');
+  return t? t.dataset.mod : '';
+}
+/* 项目标签：一个对象只能挂一个项目 */
+function projTag(pid){ var p=P(pid); return (p&&p.tags&&p.tags[0])||'#未归类'; }
+function projRadio(pid){
+  return '<div class="radios">'+DB.projects.map(function(x){
+    var on=x.id===pid;
+    return '<label class="'+(on?'on':'')+'"><input type="radio" name="f_proj" value="'+esc(x.id)+'"'+(on?' checked':'')+'>'+
+      esc((x.tags&&x.tags[0])||x.name)+'</label>';
+  }).join('')+'</div>';
+}
+function valRadio(b,name,fb){
+  var el=b.querySelector('input[name="'+name+'"]:checked'); return el?el.value:fb;
+}
+
+/* ---- 双向同步 ----------------------------------------------------------
+   规则：谁被保存，就以「谁自己声明的关联」为准，重写对方记录上的镜像字段。
+   · 只增删这一条关系，绝不覆盖对方记录本身 → 两侧都可以独立编辑；
+   · 解除关联 ≠ 删除记录 → 两侧都可以独立存在（例如一条证据可以不属于任何结论）。
+   对应关系：
+     证据.conclusionIds   ↔ 结论.evidenceIds      证据.refuteConcIds ↔ 结论.refuteIds
+     证据.hypothesisIds   ↔ 假设.supportIds       证据.refuteHypIds  ↔ 假设.refuteIds
+     证据.nodeIds         ↔ 节点.evidenceIds
+   ---------------------------------------------------------------------- */
+function relinkEvidence(eid){
+  var e=byId(DB.evidence,eid); if(!e) return;
+  var cn=e.conclusionIds||[], rcn=e.refuteConcIds||[], hy=e.hypothesisIds||[],
+      rhy=e.refuteHypIds||[], nd=e.nodeIds||[];
+  DB.conclusions.forEach(function(c){
+    c.evidenceIds=(c.evidenceIds||[]).filter(function(x){ return x!==eid; });
+    c.refuteIds  =(c.refuteIds||[]).filter(function(x){ return x!==eid; });
+    if(cn.indexOf(c.id)>=0)  c.evidenceIds.push(eid);
+    if(rcn.indexOf(c.id)>=0) c.refuteIds.push(eid);
+  });
+  DB.hypotheses.forEach(function(h){
+    h.supportIds=(h.supportIds||[]).filter(function(x){ return x!==eid; });
+    h.refuteIds =(h.refuteIds||[]).filter(function(x){ return x!==eid; });
+    if(hy.indexOf(h.id)>=0)  h.supportIds.push(eid);
+    if(rhy.indexOf(h.id)>=0) h.refuteIds.push(eid);
+  });
+  DB.logicNodes.forEach(function(n){
+    n.evidenceIds=(n.evidenceIds||[]).filter(function(x){ return x!==eid; });
+    if(nd.indexOf(n.id)>=0) n.evidenceIds.push(eid);
+  });
+}
+function relinkConclusion(cid){
+  var c=byId(DB.conclusions,cid); if(!c) return;
+  var sup=c.evidenceIds||[], ref=c.refuteIds||[];
+  DB.evidence.forEach(function(e){
+    e.conclusionIds=(e.conclusionIds||[]).filter(function(x){ return x!==cid; });
+    e.refuteConcIds=(e.refuteConcIds||[]).filter(function(x){ return x!==cid; });
+    if(sup.indexOf(e.id)>=0) e.conclusionIds.push(cid);
+    if(ref.indexOf(e.id)>=0) e.refuteConcIds.push(cid);
+  });
+}
+function relinkHypothesis(hid){
+  var h=byId(DB.hypotheses,hid); if(!h) return;
+  var sup=h.supportIds||[], ref=h.refuteIds||[];
+  DB.evidence.forEach(function(e){
+    e.hypothesisIds=(e.hypothesisIds||[]).filter(function(x){ return x!==hid; });
+    e.refuteHypIds =(e.refuteHypIds||[]).filter(function(x){ return x!==hid; });
+    if(sup.indexOf(e.id)>=0) e.hypothesisIds.push(hid);
+    if(ref.indexOf(e.id)>=0) e.refuteHypIds.push(hid);
+  });
+}
+
+/* ==========================================================================
+   详情：节点 / 结论 / 假设 / 证据
+   ========================================================================== */
+function openNode(id){
+  var n=byId(DB.logicNodes,id); if(!n) return;
+  var st=NODE_STATE[n.state]||NODE_STATE.pending;
+  var evs=items(slice('evidence'), n.evidenceIds);
+  var hys=items(slice('hypotheses'), n.hypothesisIds);
+  var boxId='ndbox';
+  var lv=nodeLevels(), myLv=(lv[n.id]||0)+1, auto=nodeAuto(n);
+  var stgRow = '<div class="dsec"><div class="dk">阶段</div><div class="dv">'+
+    '阶段 '+myLv+' · '+(auto?'<span class="muted">自动（由连线推导）</span>':'<span class="pill">手动指定</span>')+
+    (state.edit ? ('<span class="stgrow stg-inline" style="border:none;padding:0;margin:0">'+
+        '<button class="stgbtn" data-act="stgdec" data-id="'+n.id+'" title="提前一个阶段">◂</button>'+
+        '<button class="stgbtn" data-act="stginc" data-id="'+n.id+'" title="推后一个阶段">▸</button>'+
+        (auto?'':'<button class="stgbtn auto" data-act="stgauto" data-id="'+n.id+'" title="恢复自动推导">⟲ 自动</button>')+
+      '</span>') : '') +
+    '</div></div>';
+  drawer(n.name,
+    '<div class="dsec"><div class="dk">状态</div><div class="dv"><span class="mk '+st.cls+'">'+st.m+'</span> '+st.label+'</div></div>' +
+    stgRow +
+    '<div class="dsec"><div class="dk">当前结论</div><div class="dv">'+esc(n.note||'—')+'</div></div>' +
+    '<div class="dsec"><div class="dk">支持证据</div><div class="dv">'+
+      (evs.map(function(e){ return '<div class="dli" data-act="ev" data-id="'+e.id+'"><span class="mk '+(EV_STATE[e.state]||EV_STATE['待验证']).cls+'">'+(EV_STATE[e.state]||EV_STATE['待验证']).m+'</span> '+esc(e.name)+' <span class="muted" style="font-size:11.5px">'+esc(e.type)+' · '+esc(evSrcText(e))+'</span></div>'; }).join('') || '<span class="muted">—</span>')+
+      '</div></div>' +
+    '<div class="dsec"><div class="dk">关联假设</div><div class="dv">'+
+      (hys.length?hys.map(function(h){ return '<span class="pill">'+esc(h.code)+' '+esc(h.name)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</div></div>' +
+    '<div class="dsec"><div class="dk">关联实验 / 文献</div><div class="dv">'+ nodeRefsHTML(n) +'</div></div>' +
+    '<div class="dsec"><div class="dk">当前缺口</div><div class="dv">'+
+      ((n.gap&&n.gap.length)?n.gap.map(function(g){ return '<span class="pill warn">□ '+esc(g)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</div></div>' +
+    '<div class="dsec"><div class="dk">项目标签（唯一）</div><div class="dv"><span class="pill">'+esc(projTag(n.projectId))+'</span></div></div>' +
+    (state.edit?'<div class="dsec"><button class="mini" data-act="editnode" data-id="'+n.id+'">✎ 编辑该节点</button></div>':'') +
+    '<div id="'+boxId+'"></div>');
+}
+function openEvidence(id){
+  var e=byId(DB.evidence,id); if(!e) return;
+  var st=EV_STATE[e.state]||EV_STATE['待验证'];
+  var cns=items(slice('conclusions'), e.conclusionIds);
+  var rcn=items(slice('conclusions'), e.refuteConcIds||[]);
+  var hys=items(slice('hypotheses'), e.hypothesisIds);
+  var rhy=items(slice('hypotheses'), e.refuteHypIds||[]);
+  var nds=items(slice('logicNodes'), e.nodeIds);
+  var col=TYPE_COLOR[e.type]||'#6b7f7a';
+  openModal('证据详情 · '+e.name,
+    '<div class="dl">' +
+      '<span class="k">证据名称</span><span>'+esc(e.name)+'</span>' +
+      '<span class="k">证据类型</span><span><span class="ty" style="color:'+col+';border-color:'+col+'33;background:'+col+'12">'+esc(e.type)+'</span></span>' +
+      '<span class="k">状态</span><span><span class="mk '+st.cls+'">'+st.m+'</span> '+esc(e.state)+'</span>' +
+      '<span class="k">证据强度</span><span>'+esc(e.strength)+'</span>' +
+      '<span class="k">日期</span><span>'+esc(e.date||'—')+'</span>' +
+      '<span class="k">当前结论</span><span>'+esc(e.finding||'—')+'</span>' +
+      '<span class="k">实验/文献来源</span><span>'+esc(evSrcText(e))+'</span>' +
+      '<span class="k">支持的结论</span><span>'+(cns.length?cns.map(function(c){ return '<span class="pill ok">'+esc(c.text)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">反驳的结论</span><span>'+(rcn.length?rcn.map(function(c){ return '<span class="pill bad">'+esc(c.text)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">支持的假设</span><span>'+(hys.length?hys.map(function(h){ return '<span class="pill">'+esc(h.code)+' '+esc(h.name)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">反对的假设</span><span>'+(rhy.length?rhy.map(function(h){ return '<span class="pill bad">'+esc(h.code)+' '+esc(h.name)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">关联逻辑节点</span><span>'+(nds.length?nds.map(function(n){ return '<span class="pill">'+esc(n.name)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</span>' +
+      '<span class="k">项目标签（唯一）</span><span>'+
+        '<span class="pill">'+esc(projTag(e.projectId))+'</span>'+
+        ((e.tags&&e.tags[0]&&e.tags[0]!==projTag(e.projectId))?('<span class="muted" style="font-size:11.5px;margin-left:6px">（旧值 '+esc(e.tags[0])+'，已是历史字段）</span>'):'')+
+      '</span>' +
+      '<span class="k">备注</span><span>'+esc(e.note||'—')+'</span>' +
+    '</div>' +
+    '<div class="form-actions" style="margin-top:12px">' +
+      '<button type="button" class="ghost" data-act="closemodal">关闭</button>' +
+      '<button type="button" class="primary" data-act="opensrc" data-id="'+e.id+'">打开原记录 →</button>' +
+    '</div>');
+}
+function openConc(id){
+  var c=byId(DB.conclusions,id); if(!c) return;
+  var st=RQ_STATE[c.state]||RQ_STATE['已解决'];
+  var sup=items(slice('evidence'), c.evidenceIds);
+  var ref=items(slice('evidence'), c.refuteIds);
+  drawer('结论 · '+c.text,
+    '<div class="dsec"><div class="dk">状态</div><div class="dv"><span class="mk '+st.cls+'">'+st.m+'</span> '+esc(c.state)+'</div></div>' +
+    '<div class="dsec"><div class="dk">支持证据 · '+sup.length+'</div><div class="dv">'+
+      (sup.map(function(e){ return '<div class="dli" data-act="ev" data-id="'+e.id+'"><span class="mk '+(EV_STATE[e.state]||EV_STATE['待验证']).cls+'">'+(EV_STATE[e.state]||EV_STATE['待验证']).m+'</span> '+esc(e.name)+' <span class="muted" style="font-size:11.5px">'+esc(e.type)+' · '+esc(evSrcText(e))+'</span></div>'; }).join('')||'<span class="muted">—</span>')+
+      '</div></div>' +
+    '<div class="dsec"><div class="dk">反驳证据 · '+ref.length+'</div><div class="dv">'+
+      (ref.map(function(e){ return '<div class="dli" data-act="ev" data-id="'+e.id+'">'+esc(e.name)+'</div>'; }).join('')||'<span class="muted">—</span>')+
+      '</div></div>' +
+    '<div class="dsec"><div class="dk">备注</div><div class="dv">'+esc(c.note||'—')+'</div></div>' +
+    '<div class="dsec"><div class="dk">项目标签（唯一）</div><div class="dv"><span class="pill">'+esc(projTag(c.projectId))+'</span></div></div>' +
+    (state.edit?'<div class="dsec"><button class="mini" data-act="editconc" data-id="'+c.id+'">✎ 编辑该结论</button></div>':''));
+}
+function openHyp(id){
+  var h=byId(DB.hypotheses,id); if(!h) return;
+  var st=HYP_STATE[h.state]||HYP_STATE['待验证'];
+  var sup=items(slice('evidence'), h.supportIds);
+  var ref=items(slice('evidence'), h.refuteIds);
+  drawer('假设 · '+h.name,
+    '<div class="dsec"><div class="dk">当前状态</div><div class="dv"><span class="mk '+st.cls+'">'+st.m+'</span> '+esc(h.state)+'</div></div>' +
+    '<div class="dsec"><div class="dk">描述</div><div class="dv">'+esc(h.desc||'—')+'</div></div>' +
+    '<div class="dsec"><div class="dk">支持</div><div class="dv">'+
+      (sup.map(function(e){ return '<div class="dli" data-act="ev" data-id="'+e.id+'">• '+esc(e.name)+'</div>'; }).join('')||'<span class="muted">—</span>')+'</div></div>' +
+    '<div class="dsec"><div class="dk">反对</div><div class="dv">'+
+      (ref.map(function(e){ return '<div class="dli" data-act="ev" data-id="'+e.id+'">• '+esc(e.name)+'</div>'; }).join('')||'<span class="muted">—</span>')+'</div></div>' +
+    '<div class="dsec"><div class="dk">仍需</div><div class="dv">'+((h.next&&h.next.length)?h.next.map(function(x){ return '<span class="pill warn">□ '+esc(x)+'</span>'; }).join(''):'<span class="muted">—</span>')+'</div></div>' +
+    '<div class="dsec"><div class="dk">下一步</div><div class="dv">'+esc((h.next&&h.next[0])||'—')+'</div></div>' +
+    '<div class="dsec"><div class="dk">项目标签（唯一）</div><div class="dv"><span class="pill">'+esc(projTag(h.projectId))+'</span></div></div>' +
+    (state.edit?'<div class="dsec"><button class="mini" data-act="edithyp" data-id="'+h.id+'">✎ 编辑该假设</button></div>':''));
+}
+function openStat(stateName){
+  var qs=slice('questions').filter(function(q){ return q.state===stateName; });
+  var st=RQ_STATE[stateName]||RQ_STATE['待解决'];
+  drawer(stateName+' · '+qs.length,
+    '<div class="dsec"><div class="dk">研究问题清单</div><div class="dv">'+
+      (qs.map(function(q){
+        var rel=[];
+        if(stateName==='已排除') rel=['（保留在逻辑中，标注为已排除而非删除）'];
+        return '<div class="dli">'+'<span class="mk '+st.cls+'">'+st.m+'</span> '+esc(q.text)+
+          (rel.length?(' <span class="muted" style="font-size:11.5px">'+rel[0]+'</span>'):'')+'</div>';
+      }).join('')||'<span class="muted">—</span>')+
+      '</div></div>' +
+    '<div class="dsec muted" style="font-size:12px">这一分布用来回答「我的课题现在怎么样」，刻意不做完成度百分比。</div>');
+}
+
+/* ==========================================================================
+   一键导入 / 一键导出（CSV 模板 + JSON 备份）
+   --------------------------------------------------------------------------
+   · 导出：全部数据 JSON / 当前项目 JSON 数据包 / 单表 CSV（含当前数据）
+   · 导入：.json（整体替换 或 作为新项目追加）/ .csv（按表头自动识别表，按名称 upsert）
+   · 模板：每张表一个 CSV，带示例行；以 # 开头的行按注释跳过
+   所有动作只作用于本页自己的 localStorage key（本页的研究问题 / 逻辑节点 / 结论 / 假设 /
+   证据 / 内容清单），不修改工作台的任何记录 —— 工作台记录在这里一律只读引用。
+   ========================================================================== */
+var pendingImport = null;
+function requireEdit(){
+  if(state.edit) return true;
+  toast('导入会写入数据，请先点右上角「✎ 维护模式」');
+  return false;
+}
+function splitOn(s, re){ return String(s==null?'':s).split(re).map(function(x){ return x.trim(); }).filter(Boolean); }
+function findByName(coll, key, name){
+  var list=slice(coll), v=String(name==null?'':name).trim();
+  if(!v) return null;
+  for(var i=0;i<list.length;i++){ if(String(list[i][key]==null?'':list[i][key]).trim()===v) return list[i]; }
+  return null;
+}
+var NODE_STATE_ALIAS = {
+  '已建立':'done','建立':'done','完成':'done','已完成':'done','done':'done',
+  '验证中':'verifying','进行中':'verifying','verifying':'verifying',
+  '尚未解决':'pending','待解决':'pending','未开始':'pending','pending':'pending',
+  '已排除':'excluded','排除':'excluded','excluded':'excluded'
+};
+function nodeStateKey(s){ s=String(s==null?'':s).trim(); return (NODE_STATE[s]?s:(NODE_STATE_ALIAS[s]||'pending')); }
+
+/* ---------- CSV 编解码 ---------- */
+function csvCell(v){
+  var s=(v==null?'':String(v));
+  return /[",\n\r]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s;
+}
+function toCSV(head, rows){
+  var out=[head.map(csvCell).join(',')];
+  (rows||[]).forEach(function(r){
+    var cells = (r && r.map) ? r : head.map(function(h){ return r[h]; });   /* 兼容「数组行」与「对象行」 */
+    out.push(head.map(function(_,i){ return csvCell(cells[i]); }).join(','));
+  });
+  return out.join('\r\n');
+}
+function parseCSV(text){
+  text=String(text==null?'':text).replace(/^\ufeff/,'');
+  var rows=[], row=[], cur='', q=false, i=0, c;
+  while(i<text.length){
+    c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){ cur+='"'; i+=2; continue; } q=false; i++; continue; }
+      cur+=c; i++; continue;
+    }
+    if(c==='"'){ q=true; i++; continue; }
+    if(c===','){ row.push(cur); cur=''; i++; continue; }
+    if(c==='\r'){ i++; continue; }
+    if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; i++; continue; }
+    cur+=c; i++;
+  }
+  row.push(cur); rows.push(row);
+  return rows.filter(function(r){ return r.some(function(x){ return String(x).trim()!==''; }); });
+}
+function csvObjects(text){
+  var rows=parseCSV(text);
+  if(!rows.length) return {head:[], rows:[], raw:[]};
+  var head=rows[0].map(function(h){ return String(h).replace(/^\ufeff/,'').trim(); });
+  var raw=rows.slice(1);
+  var objs=raw.map(function(r){
+    var o={}; head.forEach(function(h,j){ o[h]=String(r[j]==null?'':r[j]).trim(); }); return o;
+  });
+  return {head:head, rows:objs, raw:raw};
+}
+
+/* ---------- 文件下载（浏览器环境；不支持时降级） ---------- */
+function downloadText(name, text, mime){
+  try{
+    var blob=new Blob([text], {type:(mime||'text/plain')+';charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url; a.download=name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{ URL.revokeObjectURL(url); a.parentNode&&a.parentNode.removeChild(a); }catch(e){} }, 500);
+    return true;
+  }catch(err){
+    try{
+      var w=window.open('','_blank');
+      if(w){ w.document.write('<pre style="white-space:pre-wrap">'+esc(text)+'</pre>'); return true; }
+    }catch(e2){}
+    toast('当前环境不支持直接下载，内容已输出到控制台');
+    try{ console.log(name, text); }catch(e3){}
+    return false;
+  }
+}
+
+/* ---------- 可导入/导出的表（模板即来源于此） ---------- */
+var IO_TABLES = [
+{
+  key:'questions', label:'研究问题', file:'研究问题',
+  head:['研究问题','状态'],
+  desc:'状态只能填：已解决 / 验证中 / 已排除 / 待解决（其它值按「待解决」处理）',
+  demo:[['开花时间变异是否可遗传？','已解决'],['候选基因 A 是否为因果基因？','验证中']],
+  dump:function(){ return slice('questions').map(function(q){ return [q.text, q.state]; }); },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0;
+    rows.forEach(function(r){
+      var text=r['研究问题']; if(!text) return;
+      var st=r['状态']||'待解决'; if(RQ_ORDER.indexOf(st)<0) st='待解决';
+      var o=findByName('questions','text',text);
+      if(o){ o.state=st; upd++; }
+      else { DB.questions.push({ id:uid(pid+'_q'), projectId:pid, text:text, state:st }); add++; }
+    });
+    return '新增 '+add+' · 更新 '+upd+' 条研究问题';
+  }
+},
+{
+  key:'nodes', label:'逻辑节点（含阶段 / 并行）', file:'逻辑节点',
+  head:['阶段','节点名称','状态','说明','当前缺口','前置节点'],
+  desc:'阶段留空=自动按连线推导，填数字=手动锁定在该阶段；前置节点写上游「节点名称」，多个用 | 分隔。同一阶段且彼此不连线 = 并行支线。',
+  demo:[
+    ['',  '表型鉴定','已建立','F2 群体表型稳定分离。','',''],
+    ['',  '遗传分离','已建立','1 : 2 : 1 支持单基因隐性遗传。','','表型鉴定'],
+    ['3', '候选基因 A','已建立','关键候选基因，兼有表达与结构证据。','体内验证','遗传分离'],
+    ['3', '群体单倍型','尚未解决','自然群体取样中。','群体选择信号','表型鉴定|遗传分离']
+  ],
+  dump:function(){
+    var lv=nodeLevels();
+    return slice('logicNodes')
+      .slice()
+      .sort(function(a,b){ return (lv[a.id]||0)-(lv[b.id]||0) || a.order-b.order; })
+      .map(function(n){
+        var ups=DB.logicEdges.filter(function(e){ return e.to===n.id; })
+          .map(function(e){ var x=byId(DB.logicNodes,e.from); return x?x.name:''; }).filter(Boolean);
+        var base=(NODE_STATE[n.state]||NODE_STATE.pending).label;
+        return [ nodeAuto(n)?'':String((lv[n.id]||0)+1), n.name, base, n.note||'', (n.gap||[]).join('、'), ups.join('|') ];
+      });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0, edgeAdd=0, pairs=[], baseOrder=slice('logicNodes').length;
+    rows.forEach(function(r,idx){
+      var name=r['节点名称']; if(!name) return;
+      var sRaw=String(r['阶段']||'').trim();
+      var stg = /^\d+$/.test(sRaw) ? parseInt(sRaw,10) : null;
+      var gap = splitOn(r['当前缺口'], /[、,，|｜;；]/);
+      var o=findByName('logicNodes','name',name);
+      if(o){ o.state=nodeStateKey(r['状态']); if(r['说明']) o.note=r['说明']; o.gap=gap; o.stg=stg; upd++; }
+      else {
+        DB.logicNodes.push({ id:uid(pid+'_n'), projectId:pid, order:baseOrder+idx, name:name,
+          state:nodeStateKey(r['状态']), stg:stg, note:r['说明']||'',
+          evidenceIds:[], hypothesisIds:[], expIds:[], litIds:[], gap:gap });
+        add++;
+      }
+      pairs.push([r['前置节点'], name]);
+    });
+    /* 节点全部建好后再解析前置节点 → 连线 */
+    pairs.forEach(function(p){
+      var to=findByName('logicNodes','name',p[1]); if(!to) return;
+      splitOn(p[0], /[|｜,，;；]/).forEach(function(un){
+        var from=findByName('logicNodes','name',un); if(!from||from.id===to.id) return;
+        if(DB.logicEdges.some(function(e){ return e.from===from.id && e.to===to.id; })) return;
+        DB.logicEdges.push({ id:uid(pid+'_e'), projectId:pid, from:from.id, to:to.id }); edgeAdd++;
+      });
+    });
+    return '新增 '+add+' · 更新 '+upd+' 个节点 · 新增连线 '+edgeAdd+' 条';
+  }
+},
+{
+  key:'edges', label:'逻辑连线（谁支撑谁）', file:'逻辑连线',
+  head:['起点节点','终点节点'],
+  desc:'两个节点名。想让两个节点并行，就<不要>在它们之间连线。',
+  demo:[['表型鉴定','遗传分离'],['遗传分离','候选基因 A']],
+  dump:function(){
+    return DB.logicEdges.filter(function(e){ return e.projectId===DB.meta.active; }).map(function(e){
+      var a=byId(DB.logicNodes,e.from), b=byId(DB.logicNodes,e.to);
+      return [a?a.name:'?', b?b.name:'?'];
+    });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, n=0, skip=0;
+    rows.forEach(function(r){
+      var a=findByName('logicNodes','name',r['起点节点']), b=findByName('logicNodes','name',r['终点节点']);
+      if(!a||!b||a.id===b.id){ skip++; return; }
+      if(DB.logicEdges.some(function(e){ return e.from===a.id && e.to===b.id; })){ skip++; return; }
+      DB.logicEdges.push({ id:uid(pid+'_e'), projectId:pid, from:a.id, to:b.id }); n++;
+    });
+    return '新增连线 '+n+' 条'+(skip?('，跳过 '+skip+' 行（节点不存在或已存在）'):'');
+  }
+},
+{
+  key:'conclusions', label:'结论', file:'结论',
+  head:['结论','状态','备注','支持证据','反驳证据'],
+  desc:'证据列写「证据名称」，多个用 | 分隔；找不到的证据名会被跳过（可先导入证据再导入结论）。',
+  demo:[['候选基因 A 是开花时间的关键候选基因','已解决','由遗传分离、结构与表达证据共同支撑。','F2 分离|候选基因 A 结构变异','']],
+  dump:function(){
+    return slice('conclusions').map(function(c){
+      return [ c.text, c.state, c.note||'',
+        items(slice('evidence'), c.evidenceIds).map(function(e){ return e.name; }).join('|'),
+        items(slice('evidence'), c.refuteIds).map(function(e){ return e.name; }).join('|') ];
+    });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0;
+    rows.forEach(function(r){
+      var text=r['结论']; if(!text) return;
+      var st=r['状态']||'已解决'; if(RQ_ORDER.indexOf(st)<0) st='已解决';
+      var sup=[], re=[];
+      splitOn(r['支持证据'], /[|｜,，;；]/).forEach(function(nm){ var e=findByName('evidence','name',nm); if(e) sup.push(e.id); });
+      splitOn(r['反驳证据'], /[|｜,，;；]/).forEach(function(nm){ var e=findByName('evidence','name',nm); if(e) re.push(e.id); });
+      var o=findByName('conclusions','text',text);
+      if(o){ o.state=st; o.note=r['备注']||''; o.evidenceIds=sup; o.refuteIds=re; upd++; }
+      else { o={ id:uid(pid+'_c'), projectId:pid, text:text, state:st, note:r['备注']||'', evidenceIds:sup, refuteIds:re };
+        DB.conclusions.push(o); add++; }
+      relinkConclusion(o.id);      /* 双向同步到证据侧 */
+    });
+    return '新增 '+add+' · 更新 '+upd+' 条结论（已双向同步到证据）';
+  }
+},
+{
+  key:'hypotheses', label:'假设', file:'假设',
+  head:['编号','假设名称','状态','说明','支持证据','反对证据','下一步'],
+  desc:'状态填：待验证 / 验证中 / 已支持 / 部分支持 / 已排除；下一步多个用 | 分隔。',
+  demo:[['H1','候选基因 A 直接调控下游靶基因','验证中','通过靶位点直接抑制表达。','双荧光素酶','','体内验证|遗传互补']],
+  dump:function(){
+    return slice('hypotheses').map(function(h){
+      return [ h.code||'', h.name, h.state, h.desc||'',
+        items(slice('evidence'), h.supportIds).map(function(e){ return e.name; }).join('|'),
+        items(slice('evidence'), h.refuteIds).map(function(e){ return e.name; }).join('|'),
+        (h.next||[]).join('|') ];
+    });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0;
+    var STATES=['待验证','验证中','已支持','部分支持','已排除'];
+    rows.forEach(function(r){
+      var name=r['假设名称']; if(!name) return;
+      var st=r['状态']||'待验证'; if(STATES.indexOf(st)<0) st='待验证';
+      var sup=[], re=[];
+      splitOn(r['支持证据'], /[|｜,，;；]/).forEach(function(nm){ var e=findByName('evidence','name',nm); if(e) sup.push(e.id); });
+      splitOn(r['反对证据'], /[|｜,，;；]/).forEach(function(nm){ var e=findByName('evidence','name',nm); if(e) re.push(e.id); });
+      var nexts=splitOn(r['下一步'], /[|｜,，;；]/);
+      var o=findByName('hypotheses','name',name);
+      if(o){ o.code=r['编号']||o.code; o.state=st; o.desc=r['说明']||''; o.supportIds=sup; o.refuteIds=re; o.next=nexts; upd++; }
+      else { o={ id:uid(pid+'_h'), projectId:pid, code:r['编号']||('H'+(slice('hypotheses').length+1)),
+        name:name, desc:r['说明']||'', state:st, supportIds:sup, refuteIds:re, next:nexts, note:'' };
+        DB.hypotheses.push(o); add++; }
+      relinkHypothesis(o.id);
+    });
+    return '新增 '+add+' · 更新 '+upd+' 条假设（已双向同步到证据）';
+  }
+},
+{
+  key:'evidence', label:'证据', file:'证据',
+  head:['证据名称','类型','状态','强度','来源模块','来源卡片','日期','当前结论','支持的结论','反驳的结论','支持的假设','反对的假设','关联逻辑节点','备注'],
+  desc:'来源填「模块」+「该模块里的卡片标题」（不用记编号；填了标题会自动挂到那张卡片上）。其它关联列填「名称」，多个用 | 分隔。',
+  demo:[['F2 分离','遗传','支持','强','实验记录','表型鉴定 · 记录 1','2026-03','1 : 2 : 1','候选基因 A 是开花时间的关键候选基因','','','表型鉴定|遗传分离','表型分离稳定，界限清晰。']],
+  dump:function(){
+    return slice('evidence').map(function(e){
+      return [ e.name, e.type, e.state, e.strength, e.srcKey?srcLabel(e.srcKey):(e.src||''), evRefTitle(e), e.date||'', e.finding||'',
+        items(slice('conclusions'), e.conclusionIds).map(function(c){ return c.text; }).join('|'),
+        items(slice('conclusions'), e.refuteConcIds).map(function(c){ return c.text; }).join('|'),
+        items(slice('hypotheses'), e.hypothesisIds).map(function(h){ return h.name; }).join('|'),
+        items(slice('hypotheses'), e.refuteHypIds).map(function(h){ return h.name; }).join('|'),
+        items(slice('logicNodes'), e.nodeIds).map(function(n){ return n.name; }).join('|'),
+        e.note||'' ];
+    });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0;
+    var EV_STATES=['支持','验证中','分析中','待验证','反对'];
+    rows.forEach(function(r){
+      var name=r['证据名称']; if(!name) return;
+      function ids(coll, key, val){ var out=[];
+        splitOn(val, /[|｜,，;；]/).forEach(function(nm){ var x=findByName(coll,key,nm); if(x) out.push(x.id); }); return out; }
+      var st=r['状态']; if(EV_STATES.indexOf(st)<0) st='支持';
+      var str=r['强度']; if(['强','中','弱'].indexOf(str)<0) str='中';
+      var t=r['类型']||'其他';
+      /* 来源：模块 + 记录标题 → 解析成真实外键。优先挂工作台里同名的真实记录，
+         找不到再退回本项目已有的条目（都没有就只留文字说明） */
+      var srcModTxt = r['来源模块']||r['来源编号']||'';
+      var srcCardTxt = r['来源卡片']||'';
+      var mk = srcModKeyOf(srcModTxt); if(mk==='' && SRC_ALIAS[srcModTxt]) mk=SRC_ALIAS[srcModTxt];
+      var cid='', cFrom='';
+      if(mk && srcCardTxt){
+        var cand = slice('contents').filter(function(c){ return c.modKey===mk && cardLabel(c)===srcCardTxt; })[0];
+        if(cand){ cid=cand.id; cFrom=cand.fromDb?'db':''; }
+        else {
+          var hit = depItems(mk).filter(function(it){ return it.title===srcCardTxt; })[0];
+          if(hit){ cid = ensureContent(mk, hit.id, pid).id; cFrom='db'; }
+        }
+      }
+      var o=findByName('evidence','name',name);
+      var fields={
+        type:t, state:st, strength:str, src:(mk?srcLabel(mk):(srcModTxt||'其他')),
+        srcKey:mk, srcId:cid, srcFrom:cFrom, ref:(cid?'':srcCardTxt),
+        date:r['日期']||'', finding:r['当前结论']||'', note:r['备注']||'',
+        conclusionIds:ids('conclusions','text',r['支持的结论']),
+        refuteConcIds:ids('conclusions','text',r['反驳的结论']),
+        hypothesisIds:ids('hypotheses','name',r['支持的假设']),
+        refuteHypIds:ids('hypotheses','name',r['反对的假设']),
+        nodeIds:ids('logicNodes','name',r['关联逻辑节点'])
+      };
+      if(o){
+        Object.keys(fields).forEach(function(k){ o[k]=fields[k]; });
+        o.tags=[projTag(pid)]; upd++;
+      } else {
+        o={ id:uid(pid+'_ev'), projectId:pid, name:name, tags:[projTag(pid)] };
+        Object.keys(fields).forEach(function(k){ o[k]=fields[k]; });
+        DB.evidence.push(o); add++;
+      }
+      relinkEvidence(o.id);        /* 双向同步到结论 / 假设 / 节点 */
+    });
+    return '新增 '+add+' · 更新 '+upd+' 条证据（已双向同步关联）';
+  }
+},
+{
+  key:'next', label:'下一步关键问题', file:'关键问题',
+  head:['问题','优先级','关联假设','缺失证据'],
+  desc:'优先级填 高 / 中 / 低；关联假设写「假设名称」；缺失证据多个用 | 分隔。',
+  demo:[['该调控关系在体内是否成立？','高','候选基因 A 直接调控下游靶基因','体内验证|遗传互补']],
+  dump:function(){
+    return slice('nextQuestions').map(function(q){
+      var h=items(slice('hypotheses'), q.hypothesisIds)[0];
+      return [ q.text, q.prio, h?h.name:'', (q.missing||[]).join('|') ];
+    });
+  },
+  load:function(rows){
+    var pid=DB.meta.active, add=0, upd=0;
+    rows.forEach(function(r){
+      var text=r['问题']; if(!text) return;
+      var prio=r['优先级']; if(['高','中','低'].indexOf(prio)<0) prio='中';
+      var h=findByName('hypotheses','name',r['关联假设']);
+      var miss=splitOn(r['缺失证据'], /[|｜,，;；]/);
+      var o=findByName('nextQuestions','text',text);
+      if(o){ o.prio=prio; o.hypothesisIds=h?[h.id]:[]; o.missing=miss; upd++; }
+      else { DB.nextQuestions.push({ id:uid(pid+'_x'), projectId:pid, text:text, prio:prio, done:false,
+        missing:miss, hypothesisIds:h?[h.id]:[], acts:['查看相关证据','添加验证'] }); add++; }
+    });
+    return '新增 '+add+' · 更新 '+upd+' 条关键问题';
+  }
+},
+/* ================= 总表：一张表装下全部内容，但导入时不必都填 =================
+   第一列「表类型」决定这一行走哪张表的规则；用不上的行整行留空或删掉即可。
+   行序建议：研究问题 → 逻辑节点 → 证据 → 结论 → 假设 → 关键问题。 */
+{
+  key:'all', label:'★ 总表（全部内容 · 一张表）', file:'科研总览-总表', all:true,
+  head:['表类型','研究问题','节点名称','阶段','前置节点','结论','编号','假设名称','证据名称','类型','强度','来源模块','来源卡片','日期','当前结论','支持的结论','反驳的结论','支持的假设','反对的假设','关联逻辑节点','问题','优先级','关联假设','缺失证据','状态','说明','当前缺口','支持证据','反驳证据','反对证据','下一步','备注'],
+  desc:'第一列「表类型」写：研究问题 / 逻辑节点 / 证据 / 结论 / 假设 / 关键问题。只填你需要的行，其它行留空或删掉都行（不用整张填满）。每行的列名按对应分表的含义填。',
+  demo:[
+    ['研究问题','开花时间变异是否稳定遗传？','','','','','','','','','','','','','','','','','','','','','','','已解决','','','','','',''],
+    ['','候选基因 A 是否为因果基因？','','','','','','','','','','','','','','','','','','','','','','','验证中','','','','','',''],
+    ['逻辑节点','','表型鉴定','','','','','','','','','','','','','','','','','','','','','','已建立','F2 群体表型稳定分离。','','','','',''],
+    ['','','遗传分离','','表型鉴定','','','','','','','','','','','','','','','','','','','','已建立','1 : 2 : 1 支持单基因隐性遗传。','','','','',''],
+    ['','','候选基因 A','3','遗传分离','','','','','','','','','','','','','','','','','','','','已建立','关键候选基因，兼有表达与结构证据。','体内验证','','','',''],
+    ['','','群体单倍型','3','表型鉴定|遗传分离','','','','','','','','','','','','','','','','','','','','尚未解决','自然群体取样中。','群体选择信号','','','',''],
+    ['证据','','','','','','','','F2 分离','遗传','强','实验记录','表型鉴定 · 记录 1','2026-03','1 : 2 : 1','候选基因 A 是开花时间的关键候选基因','','','表型鉴定|遗传分离','','','','','支持','','','','','','表型分离稳定，界限清晰。'],
+    ['结论','','','','','候选基因 A 是开花时间的关键候选基因','','','','','','','','','','','','','','','','','','','已解决','','','F2 分离|候选基因 A 结构变异','','','由遗传分离、结构与表达证据共同支撑。'],
+    ['假设','','','','','','H1','候选基因 A 直接调控下游靶基因','','','','','','','','','','','','','','','','','验证中','通过靶位点直接抑制表达。','','双荧光素酶','','体内验证|遗传互补',''],
+    ['关键问题','','','','','','','','','','','','','','','','','','','','该调控关系在体内是否成立？','高','候选基因 A 直接调控下游靶基因','体内验证|遗传互补','','','','','','','']
+  ],
+  dump:function(){
+    var T=ioTable, out=[], H=this.head;
+    function push(type, obj){
+      obj['表类型']=type; out.push(H.map(function(h){ return obj[h]==null?'':obj[h]; }));
+    }
+    function sub(k){ return T(k).dump(); }
+    function toObjs(k){
+      var t=T(k);
+      return sub(k).map(function(row){ var o={}; t.head.forEach(function(h,i){ o[h]=row[i]; }); return o; });
+    }
+    toObjs('questions').forEach(function(o){ push('研究问题', o); });
+    toObjs('nodes').forEach(function(o){ push('逻辑节点', o); });
+    toObjs('evidence').forEach(function(o){ push('证据', o); });
+    toObjs('conclusions').forEach(function(o){ push('结论', o); });
+    toObjs('hypotheses').forEach(function(o){ push('假设', o); });
+    toObjs('next').forEach(function(o){ push('关键问题', o); });
+    return out;
+  },
+  load:function(rows){
+    var buckets={ questions:[], nodes:[], evidence:[], conclusions:[], hypotheses:[], next:[] };
+    var NAME={ '研究问题':'questions', '逻辑节点':'nodes', '证据':'evidence',
+               '结论':'conclusions', '假设':'hypotheses', '关键问题':'next' };
+    var unknown=[];
+    rows.forEach(function(r){
+      var ty=String(r['表类型']||'').trim();
+      if(!ty || ty.charAt(0)==='#') return;      /* 空行 / 注释行 */
+      var k=NAME[ty];
+      if(!k){ unknown.push(ty); return; }
+      buckets[k].push(r);
+    });
+    /* 顺序很重要：节点 → 证据 → 结论 → 假设 → 关键问题（后面的引用到前面的对象） */
+    var infos=[];
+    [['questions','研究问题'],['nodes','逻辑节点'],['evidence','证据'],
+     ['conclusions','结论'],['hypotheses','假设'],['next','关键问题']].forEach(function(p){
+      if(buckets[p[0]].length) infos.push(p[1]+'：'+ioTable(p[0]).load(buckets[p[0]]));
+    });
+    var msg = infos.length ? infos.join('；') : '没有任何带「表类型」的行';
+    if(unknown.length) msg += '（跳过无法识别的表类型：'+uniq(unknown).join('、')+'）';
+    return msg;
+  }
+}
+];
+function ioTable(key){
+  for(var i=0;i<IO_TABLES.length;i++) if(IO_TABLES[i].key===key) return IO_TABLES[i];
+  return null;
+}
+/* 表头识别：必须包含目标表的「全部列名」（顺序可不同、可多加列），
+   避免只给一两列就被猜成某张表、导出错数据。 */
+function detectTable(head){
+  var H=(head||[]).map(function(h){ return String(h).replace(/\s/g,''); });
+  if(H.length<2) return null;
+  /* 总表：第一列是「表类型」，一眼认出，不再往下猜 */
+  if(H.indexOf('表类型')>=0) return ioTable('all');
+  var best=null, bestScore=0;
+  IO_TABLES.forEach(function(T){
+    if(T.all) return;
+    var need=T.head.map(function(h){ return h.replace(/\s/g,''); });
+    var hit=0;
+    need.forEach(function(h){ if(H.indexOf(h)>=0) hit++; });
+    if(hit!==need.length) return;                    /* 列不齐 → 不猜 */
+    var score=hit*10 + (H[0]===need[0]?60:0);
+    if(score>bestScore){ bestScore=score; best=T; }
+  });
+  return best;
+}
+
+/* ---------- 当前项目数据包（可整体回灌） ---------- */
+function projectPack(){
+  var pid=DB.meta.active, out={ _type:'ciib-research-overview-project', _version:2, exportedAt:TODAY, projects:[] };
+  /* projects 用 id 标识，其余集合用 projectId */
+  out.projects = DB.projects.filter(function(x){ return x.id===pid; }).map(clone);
+  ['questions','logicNodes','logicEdges','conclusions','hypotheses','evidence','nextQuestions','contents'].forEach(function(k){
+    out[k]=(DB[k]||[]).filter(function(x){ return x.projectId===pid; }).map(clone);
+  });
+  return out;
+}
+function normalizeDB(d){
+  ['projects','questions','logicNodes','logicEdges','conclusions','hypotheses','evidence','nextQuestions','contents'].forEach(function(k){
+    if(!Array.isArray(d[k])) d[k]=[];
+  });
+  d.meta=d.meta||{};
+  if(!byId(d.projects, d.meta.active)) d.meta.active=(d.projects[0]||{}).id;
+  /* 项目起止时间（选填）—— 只做兜底，不写默认值，空就是空 */
+  d.projects.forEach(function(p){ p.start=p.start||''; p.end=p.end||''; });
+  d.logicNodes.forEach(function(n){ n.evidenceIds=n.evidenceIds||[]; n.hypothesisIds=n.hypothesisIds||[]; n.expIds=n.expIds||[]; n.litIds=n.litIds||[]; n.gap=n.gap||[]; if(n.stg==null) n.stg=null; });
+  d.evidence.forEach(function(e){ e.conclusionIds=e.conclusionIds||[]; e.refuteConcIds=e.refuteConcIds||[]; e.hypothesisIds=e.hypothesisIds||[]; e.refuteHypIds=e.refuteHypIds||[]; e.nodeIds=e.nodeIds||[]; e.srcKey=(e.srcKey==null?'':e.srcKey); e.srcId=e.srcId||''; e.srcFrom=e.srcFrom||''; });
+  /* 内容条目：fromDb=true 的是「绑定了工作台记录」的条目，标题/状态/日期一律取工作台实时值 */
+  d.contents.forEach(function(c){ c.fromDb=!!c.fromDb; c.srcId=c.srcId||''; });
+  d.conclusions.forEach(function(c){ c.evidenceIds=c.evidenceIds||[]; c.refuteIds=c.refuteIds||[]; });
+  d.hypotheses.forEach(function(h){ h.supportIds=h.supportIds||[]; h.refuteIds=h.refuteIds||[]; h.next=h.next||[]; });
+  return d;
+}
+/* 把一份数据包作为「新项目」追加：所有 id 加随机后缀，避免与现有数据冲突 */
+function importPackage(obj){
+  if(!obj||!obj.projects||!obj.projects.length) return null;
+  var opid=obj.projects[0].id;
+  var sfx='_'+Math.random().toString(36).slice(2,6);
+  function rid(x){ return (typeof x==='string'&&x)?(x+sfx):x; }
+  var proj=clone(obj.projects[0]);
+  proj.id=rid(proj.id); proj.updated=TODAY;
+  DB.projects.push(proj);
+  var newPid=proj.id;
+  var ARR=['evidenceIds','nodeIds','conclusionIds','hypothesisIds','refuteIds','refuteConcIds','refuteHypIds','expIds','litIds'];
+  ['questions','logicNodes','conclusions','hypotheses','evidence','nextQuestions','contents'].forEach(function(k){
+    (obj[k]||[]).forEach(function(row){
+      if(row.projectId!==opid) return;
+      var c=clone(row); c.id=rid(c.id); c.projectId=newPid;
+      ARR.forEach(function(f){ if(c[f]&&c[f].map) c[f]=c[f].map(rid); });
+      DB[k].push(c);
+    });
+  });
+  (obj.logicEdges||[]).forEach(function(e){
+    if(e.projectId!==opid) return;
+    DB.logicEdges.push({ id:rid(e.id), projectId:newPid, from:rid(e.from), to:rid(e.to) });
+  });
+  return newPid;
+}
+
+/* ---------- 统一的导入入口（mode: replace | merge） ---------- */
+function applyImport(text, filename, mode){
+  var isJson = /\.json$/i.test(filename||'') || /^\s*[{[]/.test(String(text||''));
+  if(isJson){
+    var obj=null;
+    try{ obj=JSON.parse(text); }catch(e){ return {ok:false, msg:'JSON 解析失败（'+e.message+'）'}; }
+    if(!obj || !obj.projects || !obj.projects.length) return {ok:false, msg:'这个 JSON 里没有 projects 字段，无法识别为科研总览数据包'};
+    if(mode==='replace'){
+      var d=normalizeDB(clone(obj));
+      DB=d; persist(DB); draw();
+      return {ok:true, msg:'已替换全部数据：'+DB.projects.length+' 个项目 / '+DB.logicNodes.length+' 个逻辑节点 / '+DB.evidence.length+' 条证据'};
+    }
+    var npid=importPackage(obj);
+    if(!npid) return {ok:false, msg:'数据包里没有可用项目'};
+    DB.meta.active=npid; persist(DB); draw();
+    var np=byId(DB.projects,npid);
+    return {ok:true, msg:'已作为新项目导入并切换过去：'+(np?np.name:'')};
+  }
+  var t=csvObjects(text);
+  var T=detectTable(t.head);
+  if(!T) return {ok:false, msg:'无法识别表类型。当前表头：'+(t.head.join(' / ')||'（空）')+'；请对照模板的列名'};
+  /* 跳过以 # 开头的注释行 */
+  var keep=t.rows.filter(function(o){ return !/^\s*#/.test(String(o[T.head[0]]||'')); });
+  var skipped=t.rows.length-keep.length;
+  var info=T.load(keep);
+  save(); draw();
+  return {ok:true, table:T.key, label:T.label, count:keep.length,
+    msg:'「'+T.label+'」导入 '+keep.length+' 行 → '+info+(skipped?('（跳过注释行 '+skipped+'）'):'')};
+}
+
+/* ---------- 面板 ---------- */
+function openIO(){
+  var opts = IO_TABLES.map(function(T){ return '<option value="'+T.key+'">'+esc(T.label)+'</option>'; }).join('');
+  var hasP = !!curP();
+  var html =
+    '<div class="io-tip">数据只存在本页的独立 key <code>'+esc(LS_KEY)+'</code>（与工作台主数据完全隔离）。这里的导入 / 导出只作用于本页，<b>不会碰工作台里的实验记录 / 文献 / 知识库</b>。</div>' +
+    '<div class="io-sec"><div class="io-h">⬇ 一键导出</div>' +
+      '<div class="io-row">' +
+        '<button type="button" class="primary" data-act="ioexpdb">全部数据（JSON 备份）</button>' +
+        '<button type="button" class="ghost" data-act="ioexpproj"'+(hasP?'':' disabled')+'>当前项目'+(hasP?('「'+esc(curP().name)+'」'):'')+'数据包</button>' +
+      '</div>' +
+      '<div class="io-row"><select id="ioExpT">'+opts+'</select>' +
+        '<button type="button" class="ghost" data-act="ioexpcsv">导出该表（CSV · 含当前数据）</button></div>' +
+      '<div class="io-note">JSON 可整体回灌（换电脑 / 备份）；CSV 是给人看的表格，也能反过来导入。CSV 带 BOM，Excel 打开不乱码。</div>' +
+    '</div>' +
+    '<div class="io-sec"><div class="io-h">⬆ 一键导入</div>' +
+      '<div class="io-row"><label class="io-file">选择文件（.csv / .json）<input type="file" id="ioFile" accept=".csv,.txt,.json,text/csv,application/json"></label>' +
+        '<span class="io-note">CSV 按表头自动识别类型：表头需含模板里的<b>全部列名</b>（顺序随意、可多加列）；同名的节点/结论/假设/证据会<b>更新</b>而不是重复添加。</span></div>' +
+      '<div id="ioPrev"></div>' +
+      (state.edit?'':'<div class="io-note" style="color:var(--danger)">导入需要先打开右上角「✎ 维护模式」（为遵守「唯一修改入口」的约定）。</div>') +
+    '</div>' +
+    '<div class="io-sec"><div class="io-h">⬇ 模板下载（填好再导入）</div>' +
+      '<div class="io-row"><select id="ioTplT">'+opts+'</select>' +
+        '<button type="button" class="ghost" data-act="iotmpl">下载模板 CSV</button></div>' +
+      '<div id="ioDesc" class="io-note"></div>' +
+      '<div class="io-note" style="margin-top:6px">模板含示例行，<b>导入前请替换或删除示例行</b>；以 <code>#</code> 开头的行会被当作注释跳过。</div>' +
+      '<div class="io-note" style="margin-top:6px">只想要一张表：直接选对应分表；想一次填多类内容：选 <b>★ 总表</b>（第一列「表类型」决定这行走哪张表的规则，<b>用不到的行留空或删掉即可，不必整张填满</b>）。</div>' +
+    '</div>' +
+    '<div class="form-actions" style="margin-top:12px">' +
+      '<button type="button" class="danger" data-act="reset">清空全部数据</button>' +
+      '<button type="button" class="ghost" data-act="closemodal">关闭</button>' +
+    '</div>';
+  openModal('数据导入 / 导出与模板', html, function(b){
+    var tpl=b.querySelector('#ioTplT'), desc=b.querySelector('#ioDesc');
+    function syncDesc(){ var T=ioTable(tpl.value); desc.innerHTML = T? ('列：'+T.head.join(' | ')+'<br>'+esc(T.desc)) : ''; }
+    tpl.onchange=syncDesc; syncDesc();
+    var inp=b.querySelector('#ioFile');
+    inp.onchange=function(){
+      var f=inp.files&&inp.files[0]; if(!f) return;
+      var fr=new FileReader();
+      fr.onload=function(){ showImportPreview(b, String(fr.result||''), f.name); };
+      fr.onerror=function(){ toast('读取文件失败，请重试'); };
+      fr.readAsText(f, 'utf-8');
+    };
+  });
+}
+function showImportPreview(b, text, name){
+  var box=b.querySelector('#ioPrev'); if(!box) return;
+  var isJson=/\.json$/i.test(name)||/^\s*[{[]/.test(String(text||''));
+  if(isJson){
+    var obj=null;
+    try{ obj=JSON.parse(text); }catch(e){ box.innerHTML='<div class="io-prev bad">JSON 解析失败，请检查文件是否完整。</div>'; return; }
+    if(!obj||!obj.projects||!obj.projects.length){ box.innerHTML='<div class="io-prev bad">JSON 里没有 projects 字段，不是科研总览数据包。</div>'; return; }
+    var meta='识别为 <b>JSON 数据包</b> · '+obj.projects.length+' 个项目 · '+((obj.logicNodes||[]).length)+' 个逻辑节点 · '+((obj.evidence||[]).length)+' 条证据'+
+      '<br>项目：'+esc(obj.projects.map(function(p){ return p.name; }).join('、'));
+    box.innerHTML='<div class="io-prev">'+esc(name)+'<br>'+meta+
+      '<div class="io-btns">'+
+        '<button type="button" class="danger" data-act="iodojson" data-mode="replace">替换全部数据</button>'+
+        '<button type="button" class="primary" data-act="iodojson" data-mode="merge">作为新项目追加</button>'+
+        '<button type="button" class="ghost" data-act="iocancel">取消</button>'+
+      '</div></div>';
+    pendingImport={ kind:'json', text:text, name:name };
+    return;
+  }
+  var t=csvObjects(text), T=detectTable(t.head);
+  if(!T){
+    box.innerHTML='<div class="io-prev bad">无法识别表类型。<br>当前表头：'+esc((t.head||[]).join(' / ')||'（空）')+'<br>请对照「模板下载」里的列名。</div>';
+    return;
+  }
+  var keep=t.rows.filter(function(o){ return !/^\s*#/.test(String(o[T.head[0]]||'')); });
+  var mini='<table class="io-mini"><tr>'+T.head.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join('')+'</tr>'+
+    keep.slice(0,3).map(function(o){ return '<tr>'+T.head.map(function(h){ return '<td>'+esc(o[h]||'')+'</td>'; }).join('')+'</tr>'; }).join('')+'</table>';
+  box.innerHTML='<div class="io-prev">'+esc(name)+'<br>识别为「<b>'+esc(T.label)+'</b>」· '+keep.length+' 行数据'+
+    (keep.length<3?'':'（下面只预览前 3 行）')+mini+
+    '<div class="io-btns">'+
+      '<button type="button" class="primary" data-act="iodocsv">确认导入</button>'+
+      '<button type="button" class="ghost" data-act="iocancel">取消</button>'+
+    '</div></div>';
+  pendingImport={ kind:'csv', text:text, name:name, table:T.key };
+}
+
+/* ==========================================================================
+   维护模式：表单
+   ========================================================================== */
+function formWrap(title, gridHTML, onReady, saveLabel){
+  openModal(title,
+    '<div class="form-grid">'+gridHTML+
+    '<div class="form-actions"><button type="button" class="ghost" data-act="closemodal">取消</button>'+
+    '<button type="button" class="primary" data-act="fsave">'+esc(saveLabel||'保存')+'</button></div></div>',
+    onReady);
+}
+function val(b,id){ var e=b.querySelector('#'+id); return e?e.value.trim():''; }
+function refIdx(){ return DB.meta.active; }
+
+function formProject(id){
+  var p = id? byId(DB.projects,id) : { name:'', question:'', desc:'', status:'进行中', tags:[], start:TODAY, end:'', updated:TODAY };
+  formWrap(id?('编辑项目 · '+p.name):'新建项目',
+    '<label class="field"><span>项目名称</span><input id="f_name" value="'+esc(p.name)+'"></label>'+
+    '<label class="field"><span>项目状态</span><select id="f_status">'+optList(['进行中','暂停','已完成'],p.status)+'</select></label>'+
+    '<label class="field"><span>开始时间</span><input id="f_start" type="date" value="'+esc(p.start||'')+'"></label>'+
+    '<label class="field"><span>截止时间</span><input id="f_end" type="date" value="'+esc(p.end||'')+'"></label>'+
+    '<label class="field full"><span>核心科学问题</span><input id="f_q" value="'+esc(p.question)+'"></label>'+
+    '<label class="field full"><span>项目描述</span><textarea id="f_desc" rows="2">'+esc(p.desc)+'</textarea></label>'+
+    '<label class="field full"><span>项目标签（唯一 · 一个项目只用 1 个标签，如 #开花时间）</span><input id="f_tags" value="'+esc((p.tags||[])[0]||'')+'"></label>',
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var name=val(b,'f_name'); if(!name){ toast('请填写项目名称'); return; }
+        var st=val(b,'f_start'), en=val(b,'f_end');
+        if(st && en && en<st){ toast('截止时间不能早于开始时间'); return; }
+        /* 只取第一个，保证一个项目只有一个标签 */
+        var tags=val(b,'f_tags').split(/[\s,，]+/).filter(Boolean).slice(0,1)
+          .map(function(t){ return t.charAt(0)==='#'?t:('#'+t); });
+        if(id){
+          var o=byId(DB.projects,id);
+          o.name=name; o.status=val(b,'f_status'); o.question=val(b,'f_q'); o.desc=val(b,'f_desc'); o.tags=tags;
+          o.start=st; o.end=en; o.updated=TODAY;
+        } else {
+          var nid=uid('p');
+          DB.projects.push({ id:nid, name:name, status:val(b,'f_status'), question:val(b,'f_q'), desc:val(b,'f_desc'),
+            tags:tags, start:st, end:en, updated:TODAY });
+          DB.meta.active=nid;
+          /* 新项目自动给一个最小逻辑起点，避免空白。
+             不再顺带塞入示例「内容」卡片 —— 内容应当来自真实模块记录。 */
+          DB.logicNodes.push({ id:nid+'_n1', projectId:nid, order:0, name:'研究起点', state:'pending', stg:null,
+            note:'在此写下你的第一个证据环节。', evidenceIds:[], hypothesisIds:[], expIds:[], litIds:[], gap:[] });
+        }
+        save(); close(); draw();
+        toast(id?'项目已更新':'项目已创建');
+      };
+    });
+}
+/* 起止时间单独编辑：① 项目状态 里那一行点开就是这里，不必绕进「编辑项目」。
+   两项都可留空；只填开始时间也支持（滚动推进是常态）。 */
+function formProjDates(){
+  var p=curP(); if(!p) return;
+  var quick='<div class="field full"><div class="date-quick">'+
+    '<button type="button" class="mini" data-quick="start-today">开始＝今天</button>'+
+    '<button type="button" class="mini" data-quick="end-today">截止＝今天</button>'+
+    '<button type="button" class="mini" data-quick="end-start90">截止＝开始后 90 天</button>'+
+    '<button type="button" class="mini danger" data-quick="clear">清空</button>'+
+    '</div></div>';
+  formWrap('起止时间 · '+p.name,
+    '<label class="field"><span>开始时间</span><input id="d_start" type="date" value="'+esc(p.start||'')+'"></label>'+
+    '<label class="field"><span>截止时间</span><input id="d_end" type="date" value="'+esc(p.end||'')+'"></label>'+
+    quick+
+    '<div class="field full"><div class="multi-hint">两项都能留空。只填开始时间也能用；两个都填时按自然日算总天数、已进行与剩余天数。截止早于开始会被拦下。</div></div>',
+    function(b,close){
+      var sI=b.querySelector('#d_start'), eI=b.querySelector('#d_end');
+      function plusDays(ds, n){
+        var d=new Date(Date.parse(ds+'T00:00:00Z')); d.setUTCDate(d.getUTCDate()+n);
+        return d.toISOString().slice(0,10);
+      }
+      b.addEventListener('click', function(ev){
+        var q=ev.target.closest ? ev.target.closest('[data-quick]') : null;
+        if(!q) return;
+        ev.preventDefault();
+        var k=q.dataset.quick;
+        if(k==='start-today') sI.value=TODAY;
+        else if(k==='end-today') eI.value=TODAY;
+        else if(k==='end-start90'){ if(sI.value) eI.value=plusDays(sI.value, 89); else toast('先填开始时间'); }
+        else if(k==='clear'){ sI.value=''; eI.value=''; }
+      });
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var st=sI.value.trim(), en=eI.value.trim();
+        if(st && en && en<st){ toast('截止时间不能早于开始时间'); return; }
+        p.start=st; p.end=en; p.updated=TODAY;
+        save(); close(); draw();
+        toast('起止时间已更新');
+      };
+    });
+}
+/* 新节点默认接到哪里：
+   - 指定了阶段 N（N≥2）：从「阶段 N-1」里挑最后一个节点当前驱
+   - 指定为阶段 1：视为起点，不接前驱
+   - 自动：接在最后一个节点后面 */
+function autoConnect(nid, stg){
+  var pid=DB.meta.active, lv=nodeLevels();
+  var others=slice('logicNodes').filter(function(x){ return x.id!==nid; });
+  if(!others.length) return;
+  var target=null;
+  if(stg!=null && +stg>1){
+    var prev=others.filter(function(x){ return (lv[x.id]||0)+1 === +stg-1; })
+                   .sort(function(a,b){ return a.order-b.order; });
+    target = prev.length ? prev[prev.length-1] : null;
+  } else if(stg!=null && +stg===1){
+    target = null;
+  } else {
+    var ordered=others.slice().sort(function(a,b){ return a.order-b.order; });
+    target = ordered[ordered.length-1];
+  }
+  if(target) DB.logicEdges.push({ id:uid(pid+'_e'), projectId:pid, from:target.id, to:nid });
+}
+function formNode(id, presetStage){
+  var pid=refIdx();
+  var n = id? byId(DB.logicNodes,id)
+    : { name:'', state:'pending', note:'', gap:[], stg:(presetStage||null) };
+  var maxs = Math.max(4, maxStage()+2);
+  var stgList = '';
+  for(var i=1;i<=maxs;i++) stgList += '<option value="'+i+'"></option>';
+  formWrap(id?('编辑逻辑节点'):'新增逻辑节点',
+    '<label class="field"><span>节点名称</span><input id="f_name" value="'+esc(n.name)+'"></label>'+
+    '<label class="field"><span>状态</span><select id="f_state">'+['done','verifying','pending','excluded'].map(function(k){
+      return '<option value="'+k+'"'+(n.state===k?' selected':'')+'>'+NODE_STATE[k].label+'</option>'; }).join('')+'</select></label>'+
+    '<label class="field"><span>阶段（并行设置 · 不限数量）</span>'+
+      '<input id="f_stg" type="number" min="1" step="1" value="'+((n.stg==null)?'':n.stg)+'" placeholder="留空 = 自动推导" list="stgList">'+
+      '<datalist id="stgList">'+stgList+'</datalist></label>'+
+    '<label class="field"><span>&nbsp;</span><div class="io-note">阶段 = DAG 里的列号，<b>想填多少填多少</b>（阶段 1…N 不设上限）。留空 = 按最长路径自动推导；填了数字该节点就<b>锁定</b>在该阶段，不再被上游推走。同阶段且互相不连线的节点 = <b>并行支线</b>。</div></label>'+
+    '<label class="field full"><span>节点说明</span><textarea id="f_note" rows="2">'+esc(n.note)+'</textarea></label>'+
+    '<label class="field full"><span>当前缺口（逗号分隔）</span><input id="f_gap" value="'+esc((n.gap||[]).join('，'))+'"></label>',
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var name=val(b,'f_name'); if(!name){ toast('请填写节点名称'); return; }
+        var gaps=val(b,'f_gap').split(/[,，]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        var stgRaw=val(b,'f_stg'), stg = (/^\d+$/.test(stgRaw) && +stgRaw>0) ? +stgRaw : null;
+        if(id){ var o=byId(DB.logicNodes,id); o.name=name; o.state=val(b,'f_state'); o.note=val(b,'f_note'); o.gap=gaps; o.stg=stg; }
+        else {
+          var nid=uid(pid+'_n');
+          DB.logicNodes.push({ id:nid, projectId:pid, order:slice('logicNodes').length, name:name, state:val(b,'f_state'),
+            stg:stg, note:val(b,'f_note'), evidenceIds:[], hypothesisIds:[], expIds:[], litIds:[], gap:gaps });
+          autoConnect(nid, stg);      /* 自动接入上一阶段（或链尾） */
+        }
+        save(); close(); draw();
+        toast(stg? ('节点已保存 · 阶段锁定为 '+stg) : '节点已保存 · 阶段自动推导');
+      };
+    });
+}
+/* 关联实验 / 文献 选择器：先选模块，再从工作台该模块的记录里勾（可跨模块累积）
+   列的是工作台真实记录 —— 勾上即把该记录挂进本项目（srcId 外键），不记编号。
+   本地补录的条目也留在下面，方便先把关系挂好、以后再迁移。 */
+function formLink(nid){
+  var n=byId(DB.logicNodes,nid); if(!n) return;
+  reqIndex();
+  var sel={};
+  (n.expIds||[]).concat(n.litIds||[]).forEach(function(x){
+    var c=byId(DB.contents,x);
+    sel[c && c.fromDb ? ('db:'+c.modKey+':'+c.srcId) : ('local:'+x)] = 1;
+  });
+  var curMod='exp';
+  var MODS = SRC_MODULES.filter(function(m){ return !!m.k; });
+  function tabsHTML(){
+    return '<div class="modtabs">'+MODS.map(function(m){
+      return '<button type="button" class="modtab'+(m.k===curMod?' on':'')+'" data-act="lnkmod" data-mod="'+esc(m.k)+'">'+
+        esc(m.n)+'<span class="n">'+depCount(m.k)+'</span></button>';
+    }).join('')+'</div>';
+  }
+  function listHTML(){
+    var items=depItems(curMod), local=contentsOf(curMod, n.projectId).filter(function(c){ return !c.fromDb; });
+    var h='';
+    if(items.length){
+      h += '<div class="pick-grp">工作台记录 · 实时</div><div class="msel" style="max-height:200px">'+items.map(function(it){
+        var v=pickVal(curMod,it), on=!!sel[v];
+        return '<label class="pick-i'+(on?' on':'')+'"><input type="checkbox" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+          '<span class="tt">'+esc(it.title)+'</span><span class="mk2">'+esc(it.state||'—')+'</span>'+
+          '<span class="dt">'+esc(it.date||'')+'</span></label>';
+      }).join('')+'</div>';
+    }
+    if(local.length){
+      h += '<div class="pick-grp">本地补录</div><div class="msel" style="max-height:120px">'+local.map(function(c){
+        var v='local:'+c.id, on=!!sel[v];
+        return '<label class="pick-i'+(on?' on':'')+'"><input type="checkbox" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+          '<span class="tt">'+esc(cardLabel(c))+'</span><span class="mk2">'+esc(c.status||'—')+'</span>'+
+          '<span class="dt">'+esc(c.date||'')+'</span></label>';
+      }).join('')+'</div>';
+    }
+    if(!h) h = '<div class="pick-empty">工作台「'+esc(srcLabel(curMod))+'」里还没有记录。'+(depReady()?'':'（未连接工作台）')+'</div>';
+    return h;
+  }
+  function selLine(){
+    var ids=Object.keys(sel), ex=0;
+    ids.forEach(function(v){
+      var p=parsePick(v); if(!p) return;
+      var mk = p.from==='db' ? p.mod : ((byId(DB.contents,p.id)||{}).modKey);
+      if(mk==='exp') ex++;
+    });
+    return '已选 <b>'+ids.length+'</b> 条（实验 '+ex+' · 其它模块 '+(ids.length-ex)+'）';
+  }
+  formWrap('关联实验 / 文献 · '+n.name,
+    '<div class="field full"><span>第一步选模块，第二步从工作台该模块的记录里选（可跨模块累积）</span>'+
+      '<div id="lnkPick">'+tabsHTML()+listHTML()+'</div>'+
+      '<div class="multi-hint" id="lnkSel">'+selLine()+'</div>'+
+      '<div class="multi-hint">这些是「手动关联」：有些实验 / 文献是该环节的支撑材料，但还没提炼成 Evidence，就直接挂外键。勾中工作台记录会同时把它挂进本项目；取消勾选只解除关系，工作台里的原记录不会被删除。</div></div>',
+    function(b,close){
+      var pick=b.querySelector('#lnkPick');
+      function repaint(){
+        pick.innerHTML = tabsHTML()+listHTML();
+        var s=b.querySelector('#lnkSel'); if(s) s.innerHTML=selLine();
+      }
+      b.addEventListener('click', function(ev){
+        var t=ev.target.closest ? ev.target.closest('[data-act="lnkmod"]') : null;
+        if(!t) return;
+        ev.preventDefault(); curMod=t.dataset.mod; repaint();
+      });
+      b.addEventListener('change', function(ev){
+        var i=ev.target;
+        if(!i || !i.matches || !i.matches('#lnkPick input[type=checkbox]')) return;
+        if(i.checked) sel[i.value]=1; else delete sel[i.value];
+        repaint();
+      });
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var ex=[], li=[];
+        Object.keys(sel).forEach(function(v){
+          var p=parsePick(v); if(!p) return;
+          var c;
+          if(p.from==='db') c=ensureContent(p.mod, p.id, n.projectId);
+          else { c=byId(DB.contents,p.id); if(!c || c.projectId!==n.projectId) return; }
+          (c.modKey==='exp'? ex:li).push(c.id);
+        });
+        n.expIds=ex; n.litIds=li;
+        save(); close(); draw(); openNode(nid);
+        toast('已更新关联：实验 '+ex.length+' 条 / 其它模块 '+li.length+' 条');
+      };
+    });
+}
+/* 内容条目编辑：绑定工作台记录的（fromDb）标题 / 状态 / 日期只读 —— 以工作台为准；
+   本地补录的条目照旧可编辑，方便逐步迁移或删除。 */
+function formContent(id){
+  var pid=refIdx();
+  var c = id? byId(DB.contents,id)
+    : { id:'', projectId:pid, modKey:'exp', module:'', title:'', topic:'', status:'待处理', date:TODAY, fromDb:false, srcId:'' };
+  if(!c) return;
+  var bound=ctBound(c), gone=ctGone(c);
+  var modOpts = SRC_MODULES.filter(function(m){ return !!m.k; }).map(function(m){
+    return '<option value="'+esc(m.k)+'"'+((c.modKey||'exp')===m.k?' selected':'')+'>'+esc(m.n)+'</option>';
+  }).join('');
+  formWrap(id?('编辑内容 · '+ctTitle(c)):'新增本地补录条目',
+    '<label class="field"><span>模块</span><select id="f_mod"'+(bound?' disabled':'')+'>'+modOpts+'</select></label>'+
+    '<label class="field"><span>主题（项目侧标注，随便写）</span><input id="f_topic" value="'+esc(c.topic||'')+'"></label>'+
+    '<label class="field full"><span>标题'+(bound?'（来自工作台 · 只读）':'')+'</span>'+
+      '<input id="f_title" value="'+esc(ctTitle(c))+'"'+(bound?' disabled':'')+'></label>'+
+    '<label class="field"><span>状态'+(bound?'（来自工作台 · 只读）':'')+'</span>'+
+      '<select id="f_status"'+(bound?' disabled':'')+'>'+optList(['待处理','进行中','已完成'],ctState(c)||'待处理')+'</select></label>'+
+    '<label class="field"><span>日期'+(bound?'（来自工作台 · 只读）':'')+'</span>'+
+      '<input id="f_date" type="date" value="'+esc(ctDate(c)||'')+'"'+(bound?' disabled':'')+'></label>'+
+    (bound
+      ? '<div class="field full multi-hint">'+(gone
+          ? '工作台里这条记录已经删除了。可以在这里删掉这条失效关联，或先去工作台把它恢复。'
+          : '这是绑定工作台记录的条目：标题 / 状态 / 日期一律以工作台为准，本页只保留「主题」这类项目侧标注。')+'</div>'
+      : '<div class="field full multi-hint">本地补录：工作台里没有对应记录（适合还没入库的预实验、临时材料）。想让它也能跳转，请在「＋ 从工作台添加记录」里选对应的真实记录。</div>'),
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        if(bound){
+          var o0=byId(DB.contents,id);
+          o0.topic=val(b,'f_topic');
+          save(); close(); draw();
+          toast('已保存（标题 / 状态 / 日期仍以工作台为准）');
+          return;
+        }
+        var title=val(b,'f_title'); if(!title){ toast('请填写标题'); return; }
+        var mk=val(b,'f_mod');
+        if(id){
+          var o=byId(DB.contents,id);
+          o.modKey=mk; o.module=srcLabel(mk); o.title=title; o.topic=val(b,'f_topic');
+          o.status=val(b,'f_status'); o.date=val(b,'f_date');
+        } else {
+          DB.contents.push({ id:uid(pid+'_ct'), projectId:pid, modKey:mk, module:srcLabel(mk),
+            title:title, topic:val(b,'f_topic'), status:val(b,'f_status'), date:val(b,'f_date'), fromDb:false, srcId:'' });
+        }
+        save(); close(); draw(); toast('内容条目已保存');
+      };
+    });
+}
+/* 把一条本地补录条目绑定到工作台里的真实记录（迁移用）：
+   绑定后标题 / 状态 / 日期交给工作台，条目本身保留（主题等标注不丢）。 */
+function formBindContent(id){
+  var c=byId(DB.contents,id); if(!c) return;
+  reqIndex();
+  var curMod=c.modKey||'exp', sel='';
+  var MODS = SRC_MODULES.filter(function(m){ return !!m.k; });
+  function tabsHTML(){
+    return '<div class="modtabs">'+MODS.map(function(m){
+      return '<button type="button" class="modtab'+(m.k===curMod?' on':'')+'" data-act="bmod" data-mod="'+esc(m.k)+'">'+
+        esc(m.n)+'<span class="n">'+pickCount(m.k)+'</span></button>';
+    }).join('')+'</div>';
+  }
+  function listHTML(){
+    if(!depReady())
+      return '<div class="pick-empty">未连接工作台：请从工作台左上角 Logo 进入科研总览。</div>';
+    var items=pickItems(curMod);
+    if(!items.length)
+      return '<div class="pick-empty">工作台「'+esc(srcLabel(curMod))+'」里还没有记录。'+(depNote(curMod)?('（'+esc(depNote(curMod))+'）'):'')+'</div>';
+    return '<div class="msel" style="max-height:250px">'+items.map(function(it){
+      var v=pickVal(curMod,it), on=(v===sel);
+      return '<label class="pick-i'+(on?' on':'')+'"><input type="radio" name="bpick" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+        '<span class="tt">'+esc(it.title)+'</span><span class="mk2">'+esc(it.sub||'')+'</span>'+
+        '<span class="mk2">'+esc(it.state||'—')+'</span><span class="dt">'+esc(it.date||'')+'</span></label>';
+    }).join('')+'</div>';
+  }
+  var pickBox = function(){ return tabsHTML()+listHTML(); };
+  formWrap('绑定工作台记录 · '+cardLabel(c),
+    '<div class="field full"><span>把这条本地补录指向工作台里的哪条记录？</span>'+
+      '<div id="bPick">'+pickBox()+'</div>'+
+      '<div class="multi-hint">绑定后：标题 / 状态 / 日期一律以工作台为准（本页不能改），这条的「主题」等标注保留；点「打开原记录 →」会直接切到工作台那张卡片。不绑定也行 —— 本地补录的条目会一直留在这里。</div></div>',
+    function(b,close){
+      var pick=b.querySelector('#bPick');
+      function repaint(){ pick.innerHTML = pickBox(); }
+      b.addEventListener('click', function(ev){
+        var t=ev.target.closest ? ev.target.closest('[data-act="bmod"]') : null;
+        if(!t) return;
+        ev.preventDefault(); curMod=t.dataset.mod; sel=''; repaint();
+      });
+      b.addEventListener('change', function(ev){
+        var i=ev.target;
+        if(!i || !i.matches || !i.matches('#bPick input[type=radio]')) return;
+        sel=i.value;
+        Array.prototype.slice.call(pick.querySelectorAll('.pick-i')).forEach(function(l){
+          var x=l.querySelector('input'); l.classList.toggle('on', !!(x&&x.checked));
+        });
+      });
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var p=parsePick(sel);
+        if(!p || p.from!=='db'){ toast('请先选一条工作台记录'); return; }
+        var dup=DB.contents.filter(function(x){ return x.id!==id && x.fromDb && x.modKey===p.mod && x.srcId===p.id; })[0];
+        if(dup){ toast('这条工作台记录已经绑定在「'+ctTitle(dup)+'」上了'); return; }
+        c.modKey=p.mod; c.module=srcLabel(p.mod); c.srcId=p.id; c.fromDb=true;
+        var live=ctLive(c);
+        if(live){ c.title=live.title; c.status=live.state; c.date=live.date; }
+        save(); close(); draw();
+        toast('已绑定到工作台记录：'+srcLabel(p.mod)+' · '+(live?live.title:''));
+      };
+    });
+}
+/* 从工作台添加记录进本项目：先选模块，再勾记录（已经在本项目里的不再列出） */
+function formAddFromDb(){
+  var pid=DB.meta.active;
+  reqIndex();
+  var curMod='exp', sel={};
+  var MODS = SRC_MODULES.filter(function(m){ return !!m.k; });
+  var pickBox = function(){
+    return tabsHTML()+listHTML()+'<div class="multi-hint" id="afSel">'+selLine()+'</div>';
+  };
+  function tabsHTML(){
+    return '<div class="modtabs">'+MODS.map(function(m){
+      return '<button type="button" class="modtab'+(m.k===curMod?' on':'')+'" data-act="afmod" data-mod="'+esc(m.k)+'">'+
+        esc(m.n)+'<span class="n">'+depCount(m.k)+'</span></button>';
+    }).join('')+'</div>';
+  }
+  function listHTML(){
+    if(!depReady())
+      return '<div class="pick-empty">未连接工作台：读不到工作台记录。请从工作台左上角 Logo 进入科研总览。</div>';
+    var all=depItems(curMod), note=depNote(curMod);
+    if(!all.length)
+      return '<div class="pick-empty">工作台「'+esc(srcLabel(curMod))+'」里还没有记录。'+(note?('（'+esc(note)+'）'):'')+'</div>';
+    var items=dbPickList(curMod, pid, true);      /* 已在本项目的不再列出 */
+    if(!items.length) return '<div class="pick-empty">该模块的工作台记录都已经在本项目里了。</div>';
+    return '<div class="pick-grp">勾选要挂进本项目的记录</div><div class="msel" style="max-height:250px">'+items.map(function(it){
+      var v=pickVal(curMod,it), on=!!sel[v];
+      return '<label class="pick-i'+(on?' on':'')+'"><input type="checkbox" value="'+esc(v)+'"'+(on?' checked':'')+'>'+
+        '<span class="tt">'+esc(it.title)+'</span><span class="mk2">'+esc(it.sub||'')+'</span>'+
+        '<span class="mk2">'+esc(it.state||'—')+'</span><span class="dt">'+esc(it.date||'')+'</span></label>';
+    }).join('')+'</div>';
+  }
+  function selLine(){ return '已选 <b>'+Object.keys(sel).length+'</b> 条'; }
+  formWrap('从工作台添加记录 · '+(curP()? curP().name : ''),
+    '<div class="field full"><span>把工作台里已有的记录选进本项目，之后「关键证据」「关联实验 / 文献」就能直接引用</span>'+
+      '<div id="afPick">'+pickBox()+'</div>'+
+      '<div class="multi-hint">只建立引用关系：标题 / 状态 / 日期实时读工作台，本页改不了工作台记录。要解除，在卡片上点「× 删除」即可（工作台原记录不受影响）。</div></div>',
+    function(b,close){
+      var pick=b.querySelector('#afPick');
+      function repaint(){ pick.innerHTML = pickBox(); }
+      b.addEventListener('click', function(ev){
+        var t=ev.target.closest ? ev.target.closest('[data-act="afmod"]') : null;
+        if(!t) return;
+        ev.preventDefault(); curMod=t.dataset.mod; repaint();
+      });
+      b.addEventListener('change', function(ev){
+        var i=ev.target;
+        if(!i || !i.matches || !i.matches('#afPick input[type=checkbox]')) return;
+        if(i.checked) sel[i.value]=1; else delete sel[i.value];
+        repaint();
+      });
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var n=0;
+        Object.keys(sel).forEach(function(v){
+          var p=parsePick(v); if(p && p.from==='db'){ ensureContent(p.mod, p.id, pid); n++; }
+        });
+        save(); close(); draw();
+        toast(n? ('已把 '+n+' 条工作台记录挂进本项目') : '没有勾选任何记录');
+      };
+    });
+}
+function formConc(id){
+  var pid=refIdx();
+  var c = id? byId(DB.conclusions,id) : { text:'', state:'已解决', note:'', evidenceIds:[], refuteIds:[] };
+  formWrap(id?'编辑结论':'新增结论',
+    '<label class="field full"><span>结论</span><input id="f_text" value="'+esc(c.text)+'"></label>'+
+    '<label class="field"><span>状态</span><select id="f_state">'+optList(['已解决','验证中','待解决','已排除'],c.state)+'</select></label>'+
+    '<label class="field"><span>备注</span><input id="f_note" value="'+esc(c.note)+'"></label>'+
+    '<div class="field full"><span>支持证据（多选 · 点一下即选中）</span>'+multiList(slice('evidence'), c.evidenceIds||[], 4, 'cs')+'</div>'+
+    '<div class="field full"><span>反驳证据（多选 · 点一下即选中）</span>'+multiList(slice('evidence'), c.refuteIds||[], 3, 'cr')+'</div>'+
+    '<div class="field full multi-hint">双向同步：这里勾选的证据，会自动出现在那条证据的「支持的结论 / 反驳的结论」里；取消勾选只是解除关联，不会删除证据本身。</div>',
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var text=val(b,'f_text'); if(!text){ toast('请填写结论'); return; }
+        var sel=getMulti(b,'cs'), sel2=getMulti(b,'cr');
+        if(id){ var o=byId(DB.conclusions,id); o.text=text; o.state=val(b,'f_state'); o.note=val(b,'f_note'); o.evidenceIds=sel; o.refuteIds=sel2; }
+        else { id=uid(pid+'_c'); DB.conclusions.push({ id:id, projectId:pid, text:text, state:val(b,'f_state'),
+          note:val(b,'f_note'), evidenceIds:sel, refuteIds:sel2 }); }
+        relinkConclusion(id);
+        save(); close(); draw(); toast('结论已保存，证据侧关联已双向同步');
+      };
+    });
+}
+function formHyp(id){
+  var pid=refIdx();
+  var h = id? byId(DB.hypotheses,id) : { code:'H'+(slice('hypotheses').length+1), name:'', desc:'', state:'待验证', supportIds:[], refuteIds:[], next:[], note:'' };
+  formWrap(id?'编辑假设':'新增假设',
+    '<label class="field"><span>编号</span><input id="f_code" value="'+esc(h.code)+'"></label>'+
+    '<label class="field"><span>状态</span><select id="f_state">'+optList(['待验证','验证中','已支持','部分支持','已排除'],h.state)+'</select></label>'+
+    '<label class="field full"><span>假设名称</span><input id="f_name" value="'+esc(h.name)+'"></label>'+
+    '<label class="field full"><span>描述</span><textarea id="f_desc" rows="2">'+esc(h.desc)+'</textarea></label>'+
+    '<div class="field full"><span>支持证据（多选 · 点一下即选中）</span>'+multiList(slice('evidence'), h.supportIds||[], 4, 'hs')+'</div>'+
+    '<div class="field full"><span>反对证据（多选 · 点一下即选中）</span>'+multiList(slice('evidence'), h.refuteIds||[], 3, 'hr')+'</div>'+
+    '<label class="field full"><span>下一步验证实验（逗号分隔）</span><input id="f_next" value="'+esc((h.next||[]).join('，'))+'"></label>'+
+    '<label class="field full"><span>备注</span><input id="f_note" value="'+esc(h.note)+'"></label>'+
+    '<div class="field full multi-hint">双向同步：这里勾选的证据，会自动出现在那条证据的「支持的假设 / 反对的假设」里；取消勾选只是解除关联，假设本身仍可独立存在。</div>',
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var name=val(b,'f_name'); if(!name){ toast('请填写假设名称'); return; }
+        var nexts=val(b,'f_next').split(/[,，]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        var sup=getMulti(b,'hs'), ref=getMulti(b,'hr');
+        if(id){ var o=byId(DB.hypotheses,id); o.code=val(b,'f_code'); o.name=name; o.desc=val(b,'f_desc');
+          o.state=val(b,'f_state'); o.supportIds=sup; o.refuteIds=ref; o.next=nexts; o.note=val(b,'f_note'); }
+        else { id=uid(pid+'_h'); DB.hypotheses.push({ id:id, projectId:pid, code:val(b,'f_code'), name:name, desc:val(b,'f_desc'),
+          state:val(b,'f_state'), supportIds:sup, refuteIds:ref, next:nexts, note:val(b,'f_note') }); }
+        relinkHypothesis(id);
+        save(); close(); draw(); toast('假设已保存，证据侧关联已双向同步');
+      };
+    });
+}
+function formEv(id){
+  var pid=refIdx(), p=P(pid);
+  var e = id? byId(DB.evidence,id)
+    : { name:'', type:'分子', state:'支持', strength:'中', src:'', srcKey:'exp', srcId:'', ref:'', finding:'', date:TODAY,
+        note:'', projectId:pid, tags:(p&&p.tags)||[],
+        conclusionIds:[], refuteConcIds:[], hypothesisIds:[], refuteHypIds:[], nodeIds:[] };
+  var curPid = e.projectId||pid;
+  var modKey = e.srcKey||'exp';
+  /* 当前选中的来源（打开表单时按已存的来源还原成 pick 值） */
+  var curPick = '';
+  if(e.srcId){
+    var eC=byId(DB.contents, e.srcId);
+    curPick = eC ? pickValOfContent(eC) : ('local:'+e.srcId);
+  }
+  reqIndex();      /* 打开表单先刷新一次工作台记录，避免拿到旧索引 */
+  formWrap(id?'编辑证据':'新增证据',
+    '<label class="field"><span>证据名称</span><input id="f_name" value="'+esc(e.name)+'"></label>'+
+    '<label class="field"><span>证据类型</span><select id="f_type">'+optList(TYPE_OPTIONS,e.type)+'</select></label>'+
+    '<label class="field"><span>状态</span><select id="f_state">'+optList(['支持','验证中','分析中','待验证','反对'],e.state)+'</select></label>'+
+    '<label class="field"><span>证据强度</span><select id="f_str">'+optList(['强','中','弱'],e.strength)+'</select></label>'+
+    '<label class="field"><span>日期</span><input id="f_date" type="date" value="'+esc(e.date)+'"></label>'+
+    '<label class="field"><span>当前结论（现象/数值）</span><input id="f_find" value="'+esc(e.finding)+'"></label>'+
+    '<label class="field full"><span>备注</span><input id="f_note" value="'+esc(e.note)+'"></label>'+
+    '<div class="field full"><span>来源 —— 先点模块，再从工作台该模块的记录里选（不用记编号）</span>'+
+      '<div id="srcPick">'+cardPickHTML(modKey, curPick, 'src')+'</div>'+
+      '<div class="multi-hint">这里列出的是工作台里的真实记录：选中即把该记录挂进本项目，标题 / 状态 / 日期永远以工作台为准。来源是一次还没入库的实验 / 一份还没整理的文献时，选「其他」直接手填标题。</div></div>'+
+    '<div class="field full"><span>所属项目（单选 · 一个对象只能挂一个项目标签）</span>'+projRadio(curPid)+
+      '<div class="multi-hint">改成另一个项目 = 把这条证据移过去。<b>下面三组列表会跟着切到新项目</b>，原来勾中的按名称尽量保留；新项目里没有的自动解除。</div></div>'+
+    '<div id="reflists">'+evRefHTML(curPid, e)+'</div>',
+    function(b,close){
+      /* ① 来源模块：点页签 → 重铺该模块的卡片标题列表 */
+      b.addEventListener('click', function(ev){
+        var t=ev.target.closest ? ev.target.closest('[data-act="srcmod"]') : null;
+        if(!t || t.dataset.for!=='src') return;
+        ev.preventDefault();
+        var box=b.querySelector('#srcPick');
+        if(box) box.innerHTML = cardPickHTML(t.dataset.mod, '', 'src');
+      });
+      /* ② 所属项目：改了就立刻重建下面三组列表，并尽量保留同名勾选 */
+      b.addEventListener('change', function(ev){
+        var el=ev.target;
+        if(!el || !el.matches || !el.matches('input[name="f_proj"]')) return;
+        var np = valRadio(b,'f_proj',curPid);
+        var nx = carryRefs(b, np);
+        var box=b.querySelector('#reflists');
+        if(box) box.innerHTML = evRefHTML(np, nx);
+      });
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var name=val(b,'f_name'); if(!name){ toast('请填写证据名称'); return; }
+        var newPid=valRadio(b,'f_proj',curPid);
+        var moved=(newPid!==(id?e.projectId:pid));
+        var pk=parsePick(getPick(b,'src')), freeTxt=getPickFree(b,'src');
+        var mm = (pk && pk.from==='db') ? pk.mod : pickModKey(b,'src');
+        var srcId='', srcFrom='', card=null;
+        if(pk && pk.from==='db'){
+          /* 选了工作台记录：顺手把它挂进本项目（已有绑定则复用），证据的来源指向它 */
+          card = ensureContent(pk.mod, pk.id, newPid);
+          srcId = card.id; srcFrom = 'db';
+        } else if(pk && pk.from==='local'){
+          srcId = pk.id; srcFrom = 'local';
+          card = byId(DB.contents, srcId);
+        }
+        var srcTxt = mm ? srcLabel(mm) : '其他';
+        var refTxt = card ? ctTitle(card) : freeTxt;
+        /* 只保留属于 newPid 的对象，避免跨项目悬空引用 */
+        var cns=onlyPid('conclusions',getMulti(b,'cn'),newPid),
+            rcn=onlyPid('conclusions',getMulti(b,'rcn'),newPid),
+            hys=onlyPid('hypotheses', getMulti(b,'hy'),newPid),
+            rhy=onlyPid('hypotheses', getMulti(b,'rhy'),newPid),
+            nds=onlyPid('logicNodes', getMulti(b,'nd'),newPid);
+        if(id){
+          var o=byId(DB.evidence,id);
+          var oldPid=o.projectId;
+          o.name=name; o.type=val(b,'f_type'); o.state=val(b,'f_state'); o.strength=val(b,'f_str');
+          o.src=srcTxt; o.srcKey=mm; o.srcId=srcId||''; o.srcFrom=srcFrom; o.ref=refTxt;
+          o.date=val(b,'f_date'); o.finding=val(b,'f_find');
+          o.note=val(b,'f_note'); o.projectId=newPid; o.tags=[projTag(newPid)];
+          o.conclusionIds=cns; o.refuteConcIds=rcn; o.hypothesisIds=hys; o.refuteHypIds=rhy; o.nodeIds=nds;
+          /* 跨项目移动：把证据从「原项目节点」的 evidenceIds 里摘干净 */
+          if(oldPid!==newPid) DB.logicNodes.forEach(function(n){
+            n.evidenceIds=(n.evidenceIds||[]).filter(function(x){ return x!==id; });
+          });
+        } else {
+          id=uid(newPid+'_ev');
+          DB.evidence.push({ id:id, projectId:newPid, name:name, type:val(b,'f_type'), state:val(b,'f_state'),
+            strength:val(b,'f_str'), src:srcTxt, srcKey:mm, srcId:srcId||'', srcFrom:srcFrom, ref:refTxt,
+            date:val(b,'f_date'), finding:val(b,'f_find'), note:val(b,'f_note'), tags:[projTag(newPid)],
+            conclusionIds:cns, refuteConcIds:rcn, hypothesisIds:hys, refuteHypIds:rhy, nodeIds:nds });
+        }
+        relinkEvidence(id);
+        save(); close(); draw();
+        toast(moved?('证据已移至 '+projTag(newPid)+'，并已切到该项目的结论 / 假设')
+                    :'证据已保存，关联计数已双向同步');
+      };
+    });
+}
+function formNq(id){
+  var pid=refIdx();
+  var q = id? byId(DB.nextQuestions,id) : { text:'', prio:'高', hypothesisIds:[], missing:[], acts:['查看相关证据','添加验证'], done:false };
+  formWrap(id?'编辑关键问题':'新增关键问题',
+    '<label class="field full"><span>问题</span><input id="f_text" value="'+esc(q.text)+'"></label>'+
+    '<label class="field"><span>优先级</span><select id="f_prio">'+optList(['高','中','低'],q.prio)+'</select></label>'+
+    '<label class="field"><span>关联假设</span><select id="f_hy"><option value="">（不关联）</option>'+slice('hypotheses').map(function(h){
+      return '<option value="'+h.id+'"'+((q.hypothesisIds||[])[0]===h.id?' selected':'')+'>'+esc(h.code)+' '+esc(h.name)+'</option>'; }).join('')+'</select></label>'+
+    '<label class="field full"><span>关联缺失证据（逗号分隔）</span><input id="f_missing" value="'+esc((q.missing||[]).join('，'))+'"></label>',
+    function(b,close){
+      b.querySelector('[data-act="fsave"]').onclick=function(){
+        var text=val(b,'f_text'); if(!text){ toast('请填写问题'); return; }
+        var miss=val(b,'f_missing').split(/[,，]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        var hy=val(b,'f_hy');
+        if(id){ var o=byId(DB.nextQuestions,id); o.text=text; o.prio=val(b,'f_prio'); o.missing=miss; o.hypothesisIds=hy?[hy]:[]; }
+        else DB.nextQuestions.push({ id:uid(pid+'_x'), projectId:pid, text:text, prio:val(b,'f_prio'), done:false,
+          missing:miss, hypothesisIds:hy?[hy]:[], acts:['查看相关证据','添加验证'] });
+        save(); close(); draw(); toast('问题已保存');
+      };
+    });
+}
+function formQuestionsManager(){
+  var qs=slice('questions');
+  var body = '<p class="muted" style="margin:0 0 10px;font-size:12.5px">研究问题决定①项目状态的四个数字。可直接改状态或删除。</p>' +
+    qs.map(function(q,i){
+      return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'+
+        '<input data-qtext="'+q.id+'" value="'+esc(q.text)+'" style="flex:1">'+
+        '<select data-qstate="'+q.id+'" style="width:104px">'+optList(RQ_ORDER,q.state)+'</select>'+
+        '<button class="mini danger" data-qdel="'+q.id+'">×</button></div>';
+    }).join('') +
+    '<div style="display:flex;gap:8px;margin-top:10px"><input id="f_newq" placeholder="新增研究问题…" style="flex:1">'+
+    '<select id="f_newqs" style="width:104px">'+optList(RQ_ORDER,'待解决')+'</select></div>' +
+    '<div class="form-actions"><button type="button" class="ghost" data-act="closemodal">关闭</button>'+
+    '<button type="button" class="primary" data-act="fsave">保存全部</button></div>';
+  openModal('管理研究问题', body, function(b,close){
+    b.querySelector('[data-act="fsave"]').onclick=function(){
+      var pid=DB.meta.active;
+      /* 删除 */
+      Array.prototype.slice.call(b.querySelectorAll('[data-qdel]')).forEach(function(btn){
+        if(btn.dataset.qdel && btn._del) DB.questions=DB.questions.filter(function(x){ return x.id!==btn.dataset.qdel; });
+      });
+      /* 更新 */
+      Array.prototype.slice.call(b.querySelectorAll('[data-qtext]')).forEach(function(inp){
+        var o=byId(DB.questions, inp.dataset.qtext); if(o) o.text=inp.value.trim()||o.text;
+      });
+      Array.prototype.slice.call(b.querySelectorAll('[data-qstate]')).forEach(function(sel){
+        var o=byId(DB.questions, sel.dataset.qstate); if(o) o.state=sel.value;
+      });
+      /* 新增 */
+      var nt=val(b,'f_newq');
+      if(nt) DB.questions.push({ id:uid(pid+'_q'), projectId:pid, text:nt, state:b.querySelector('#f_newqs').value });
+      save(); close(); draw(); toast('研究问题已保存');
+    };
+    b.addEventListener('click', function(e){
+      var d=e.target.closest('[data-qdel]'); if(d){ d._del=true; d.closest('div').style.opacity=.4; d.textContent='✓'; }
+    });
+  });
+}
+function formNote(){
+  openModal('科研总览 · 设计说明',
+    '<div class="proto-tip"><b>本页不内置任何数据</b>：第一次打开是空的，需要自己新建项目，或导入 JSON 数据包。之前内联在页面里的那份示例数据（4 个课题）已经撤掉 —— 它不该跟着网页一起发布出去。</div>' +
+    '<div class="proto-tip"><b>数据独立存放</b>：科研总览的数据存在 <code>'+esc(LS_KEY)+'</code> 这个独立 key 里，与工作台主数据（<code>ciib2:db</code>）互不影响 —— 这里的改动不会动你的实验记录 / 文献 / 知识库，反之亦然；工作台的「导出备份」也不会包含它。</div>' +
+    '<ol class="ul" style="font-size:13px">' +
+      '<li><b>复用的现有 CIIB 概念</b>：品牌色 / 浅底 / 圆角卡片 / 细边框 / 轻阴影 / active 态 / 24px 线性 SVG 图标 / 紧凑高密度排版；模块名与图标（科研绘图、分子实验、实验记录、文献、知识库…）直接沿用；<b>薄荷 / 靛蓝两套配色</b>与主站一一对应。</li>' +
+      '<li><b>本次新增的 UI</b>：项目选择器、研究问题状态四联数字 + 侧边清单抽屉、Evidence Map（<b>分层 DAG</b>，支持多分支并行、<b>阶段可手动编辑</b>）、结论/假设双栏、按证据类型筛选的 Evidence Card、下一步关键问题、顶部三视图切换（研究概览 / 证据地图 / 全部内容），以及「导入 / 导出 + 模板下载」面板。</li>' +
+      '<li><b>项目标签如何体现</b>：项目本身不是新的一级导航，而是给现有科研对象打的组织标签，且<b>一个对象只能挂一个项目标签</b>。证据表单里用「所属项目」单选实现；改为另一个项目 = 把对象移过去，并自动解除它与原项目结论/假设/节点的关联。「全部内容」页是项目标签视图的完整版。</li>' +
+      '<li><b>关联实验 / 文献怎么实现</b>：分两类，界面分开标注 —— <b>①自动</b>：从该环节的「支持证据」派生（取每条证据的来源模块 + 来源记录标题，去重，只读）；<b>②手动</b>：节点字段 expIds / litIds，是<b>真实外键</b>，指向本项目的条目（绑定工作台记录的条目带 srcId，直指工作台的实验 / 文献 / 其它模块记录），可在维护模式里<b>先选模块、再勾工作台记录</b>挂接，点 × 解除（只解除关系，不删原记录）。</li>' +
+      '<li><b>证据 ↔ 假设/结论/节点 双向同步</b>：谁被保存，就以谁声明的关联为准，重写对方记录上的镜像字段（证据.conclusionIds ↔ 结论.evidenceIds、证据.refuteConcIds ↔ 结论.refuteIds、证据.hypothesisIds ↔ 假设.supportIds、证据.refuteHypIds ↔ 假设.refuteIds、证据.nodeIds ↔ 节点.evidenceIds）。只增删关系、绝不覆盖对方记录本身 → 两侧都能独立编辑；解除关联不等于删除记录 → 两侧都能独立存在。</li>' +
+      '<li><b>「待处理 / 进行中 / 已完成」是怎么来的</b>：不是本页填的，是<b>按工作台各模块自己的完成态自动派生</b>的 —— 实验记录看阶段（完成 → 已完成；执行 / 进行中 → 进行中；其余 → 待处理）、分子实验·载体构建看构建状态（已完成 / 构建中 / 其它）、知识库·点子库看状态（已验证 / 已归档 → 已完成，其余 → 待处理）、待办看是否勾选、遗传转化按各阶段日期落位（都没开始 → 待处理；有阶段跨今天 → 进行中；全部跑完 → 已完成）。文献 / 拾贝 / 引物 / 片段扩增 / 载体图谱 / 排障库 / 操作手册本身没有完成态概念，一律显示 <code>—</code>，不硬凑一个状态。日期取该记录在工作台里的更新时间。你在工作台改了状态，这里立刻跟着变。</li>' +
+      '<li><b>来源页签里都有什么</b>：<b>实验记录只列「实验链路」的记录</b> —— 排障库（症状 / 排查）与操作手册（SOP）不是课题来源，不在来源选择里出现；<b>Todo / 科研绘图 / 实用功能也不作为来源页签</b>（前两者不落库、属日常事务）。历史已经绑定过的条目不受影响：名称、状态、跳转照旧可用，只是不再提供新的入口。已绑定的排障库条目在编辑时仍会列出来，不会因为隐藏而把原有来源清空。</li>' +
+      '<li><b>与工作台的数据关系</b>：本页<b>只读引用</b>工作台记录，绝不修改它们。从工作台左上角 ciib Logo 进来时会实时读取各模块的真实记录，供「来源选择」「全部内容」使用；<b>选中一条工作台记录 = 把它挂进当前项目</b>（内容清单里生成一条绑定条目，标题 / 状态 / 日期永远取工作台的值），所以「全部内容」页只包含<b>被选择进本项目的卡片</b>。卡片上的「打开原记录 →」会切到工作台对应模块并定位到那张卡片（文献 / 知识库 / 点子库直接弹出详情）。本页自己的叙事（研究问题 / 逻辑节点 / 结论 / 假设 / 证据）存在本页独立的 key 里，不进工作台数据。</li>' +
+      '<li><b>「阶段」与「并行」是怎么定的</b>：默认<b>自动</b> —— 阶段(n) = max(阶段(所有前驱)) + 1（最长路径），所以「同一批上游托起、彼此又没连线」的节点会自然落在同一列，这就是<b>并行分支</b>。你可以在维护模式里点节点卡片上的 <b>◂ ▸</b> <b>手动指定</b>阶段（字段 <code>stg</code>），指定后该节点被锁定、不再被上游推动，下游仍按最长路径往后排；点「⟲ 自动」恢复。节点表单里也有「阶段」下拉。想让两条线并行 = 同阶段且不连线；想串行 = 拉一条箭头。</li>' +
+      '<li><b>一键导入 / 一键导出</b>：顶栏「⇅ 导入 / 导出」。①<b>导出</b>：全部数据 JSON（整体备份 / 换电脑）、当前项目 JSON 数据包（可再导入成新项目）、单表 CSV（含当前数据，带 BOM，Excel 不乱码）；②<b>导入</b>：选 .json 或 .csv 即可 —— JSON 支持「替换全部数据」或「作为新项目追加」；CSV 按表头自动识别是哪张表，按名称 upsert（同名更新、不重复添加），引用列写「名称」、多个用 <code>|</code> 分隔；③<b>模板下载</b>：每张表一个 CSV 模板，带示例行与列说明，<code>#</code> 开头的行按注释跳过。导入属于写入，需要先开维护模式。</li>' +
+      '<li><b>选对象只看「模块 + 卡片标题」，不用记编号</b>：证据的「来源」、节点的「关联实验 / 文献」，都改成<b>先点模块</b>（实验记录 / 文献 / 知识库 / 分子实验 / 载体图谱 / 遗传转化 / 其他），<b>再从该模块的卡片标题里选</b>。存在库里的是真实外键（<code>srcKey</code> + <code>srcId</code>、<code>expIds</code> / <code>litIds</code>），界面永远显示「模块 · 卡片标题」。一次没入库的实验就选「其他」直接手写标题。</li>' +
+      '<li><b>改所属项目 → 下面三组列表跟着切</b>：证据表单里把「所属项目」改成另一个项目时，「支持的结论 / 反驳的结论 / 支持的假设 / 反对的假设 / 关联逻辑节点」<b>立刻换成新项目里的对象</b>，原来勾中的按<b>名称</b>尽量保留（新项目里同名的自动续上，不存在的自动解除），并给出一句提示说明匹配了几项、丢了几项。保存时只保留属于新项目的引用，不会产生跨项目悬空关联。</li>' +
+      '<li><b>总表模板</b>：模板下拉里多了一个「★ 总表（全部内容 · 一张表）」，把研究问题 / 逻辑节点 / 证据 / 结论 / 假设 / 关键问题并成一张表，第一列「表类型」决定这行走哪张表的规则。<b>用不到的行留空或整行删掉都行，不必整张填满</b>；导入时按表类型分组，按「节点 → 证据 → 结论 → 假设 → 关键问题」的顺序依次落库，引用关系会自动补上。</li>' +
+      '<li><b>配色跟随主工作台</b>：本页<b>没有自己的配色开关</b>。在主工作台侧栏切一次薄荷 / 靛蓝，这里立刻跟着变；靛蓝态与主站 <code>html.theme-ink</code> 同源（primary #1c528d / 背景 #c7d8eb / 文字 #272e35，绿色系语义色整体转蓝）。<b>入口在左上角 Logo</b>：点 Logo 进入科研总览（侧栏整体收起，只留最左边一个箭头，点箭头可唤起边栏）。</li>' +
+      '<li><b>阶段不限数量</b>：节点表单的「阶段」从下拉改成数字输入 —— 阶段 1…N <b>想填多少填多少</b>，留空仍是自动推导。</li>' +
+      '<li><b>完成态自动沉底</b>：凡是能勾「完成 / 归档」的列表，<b>勾上之后这条就自动排到列表最后</b>（⑥ 下一步问题的「✓ 标记完成」、全部内容里的「已完成」卡片都会沉底，并置灰加删除线）。取消勾选即回到原位；未完成的条目保持原有相对顺序，不会被打乱。结论、假设这类本身有叙事顺序的列表不做重排。</li>' +
+      '<li><b>研究逻辑垂直居中</b>：② 研究逻辑的阶段表头统一贴顶，<b>节点栈在列的剩余高度里垂直居中</b> —— 只有 1 个节点的阶段不会孤零零挂在顶部，多分支阶段从中间向两侧铺开，整张 DAG 看着是平的。箭头按节点真实位置重算，居中后照样连得准。</li>' +
+      '<li><b>本轮已按你的确认定稿</b>：① 研究问题状态就是「已解决 / 验证中 / 已排除 / 待解决」四类；② Evidence Map <b>允许多分支并行</b>（已改为分层 DAG，且阶段可手动编辑）；③ 证据与假设<b>双向自动同步</b>，同时允许独立编辑、独立存在；④ <b>不做</b>额外的权限 / 撤销层，原站也不新增 —— 唯一的修改入口就是「维护模式」开关；⑤ 同一个科研对象<b>不能</b>同时挂多个项目标签（已改为单选）。</li>' +
+    '</ol>' +
+    '<div class="form-actions" style="margin-top:12px">' +
+      '<button type="button" class="danger" data-act="reset">清空全部数据</button>' +
+      '<button type="button" class="primary" data-act="closemodal">知道了</button>' +
+    '</div>');
+}
+
+/* ==========================================================================
+   事件
+   ========================================================================== */
+function onAct(e){
+  var t=e.target.closest('[data-act]');
+  if(!t) return;
+  var a=t.dataset.act, id=t.dataset.id;
+
+  switch(a){
+    case 'edit':
+      state.edit=!state.edit;
+      if(!state.edit) closeDrawer();
+      draw(); toast(state.edit?'已进入维护模式 · 可以增删改本页的研究逻辑':'已退出维护模式，恢复干净视图'); return;
+    case 'note': formNote(); return;
+    case 'view': state.view=t.dataset.v; draw(); return;
+    /* ---- 多选控件：全选 / 清空（原生 select 无法一键全选） ---- */
+    case 'mselall': case 'mselnone': {
+      var box=document.querySelector('.msel[data-msel="'+(t.dataset.key||'')+'"]');
+      if(box){
+        Array.prototype.slice.call(box.querySelectorAll('input[type=checkbox]')).forEach(function(i){
+          i.checked = (a==='mselall');
+        });
+        refreshMsel(box);
+      }
+      return;
+    }
+    /* ---- 关联实验 / 文献（节点 ↔ 原模块记录，真实外键） ---- */
+    case 'linknode': closeDrawer(); formLink(id); return;
+    case 'unlinkref': {
+      var nR=byId(DB.logicNodes,t.dataset.id); if(!nR) return;
+      var rid=t.dataset.ref;
+      nR.expIds=(nR.expIds||[]).filter(function(x){ return x!==rid; });
+      nR.litIds=(nR.litIds||[]).filter(function(x){ return x!==rid; });
+      save(); draw();
+      if(document.getElementById('roDrawer').classList.contains('open')) openNode(nR.id);
+      toast('已解除关联（原记录没有被删除）'); return;
+    }
+    case 'stat': openStat(t.dataset.s); return;
+    case 'node': openNode(id); return;
+    case 'emnode':
+      var i=state.expanded.indexOf(id);
+      if(i>=0) state.expanded.splice(i,1); else state.expanded.push(id);
+      draw(); return;
+    case 'closedrawer': closeDrawer(); return;
+    case 'closemodal': closeModal(); return;
+    case 'conc': openConc(id); return;
+    case 'hyp':  openHyp(id); return;
+    case 'ev':   openEvidence(id); return;
+    case 'evfilter': state.evFilter=t.dataset.t; draw(); return;
+    case 'opensrc': {
+      /* 证据详情的「打开原记录」：跳到工作台里那条记录 */
+      var ev=byId(DB.evidence,id); if(!ev) return;
+      var evC = ev.srcId? byId(DB.contents, ev.srcId) : null;
+      if(evC){ openContent(evC); return; }
+      var evIt = depItem(ev.srcKey||'', ev.srcId||'');
+      if(evIt){ openInWorkbench(ev.srcKey, ev.srcId, evIt.title); return; }
+      if(!ev.srcId && ev.ref){
+        toast('这条来源是手填的（'+srcLabel(ev.srcKey||'')+' · '+ev.ref+'）：工作台里没有对应记录');
+        return;
+      }
+      toast('工作台里已经没有这条记录了（'+(srcLabel(ev.srcKey||'')||'原模块')+'）');
+      return;
+    }
+    case 'openct': openContent(byId(DB.contents,id)); return;
+    /* ---- 全部内容：维护模式下的增删改 + 与工作台核对 ---- */
+    case 'addct': formContent(null); return;
+    case 'editct': formContent(id); return;
+    case 'bindct': formBindContent(id); return;
+    case 'delct': {
+      var cD=byId(DB.contents,id); if(!cD) return;
+      var isB=ctBound(cD);
+      if(!confirm('从本项目移除「'+ctTitle(cD)+'」？\n\n'+(isB
+        ? '只会解除项目与这条工作台记录的关联，工作台里的原记录不会被删除。'
+        : '这是一条本地补录的内容，移除后就只剩 JSON 备份里还有。'))) return;
+      /* 连带把指向它的证据 / 节点关联清掉，避免悬空外键 */
+      DB.contents=DB.contents.filter(function(x){ return x.id!==id; });
+      DB.evidence.forEach(function(e){ if(e.srcId===id){ e.srcId=''; e.ref=''; } });
+      DB.logicNodes.forEach(function(n){
+        n.expIds=(n.expIds||[]).filter(function(x){ return x!==id; });
+        n.litIds=(n.litIds||[]).filter(function(x){ return x!==id; });
+      });
+      save(); draw(); toast(isB? '已解除关联（工作台原记录未动）' : '已移除本地补录条目');
+      return;
+    }
+    case 'addfromdb': formAddFromDb(); return;
+    case 'syncct': {
+      /* 与工作台核对：① 绑定条目按工作台刷新快照 ② 本地补录里「模块 + 标题」
+         与工作台记录同名的，自动认领过来（迁移用），不重复绑定 */
+      var pid0=DB.meta.active, bindN=0, goneN=0, autoN=0;
+      DB.contents.forEach(function(c){
+        if(c.projectId!==pid0) return;
+        if(ctBound(c)){
+          var live=ctLive(c);
+          if(live){ c.title=live.title; c.status=live.state; c.date=live.date; bindN++; }
+          else goneN++;
+          return;
+        }
+        if(!c.title || !c.modKey) return;
+        var hit = depItems(c.modKey).filter(function(it){ return it.title===c.title; })[0];
+        if(!hit) return;
+        var taken = DB.contents.some(function(x){
+          return x!==c && x.fromDb && x.modKey===c.modKey && x.srcId===hit.id; });
+        if(taken) return;
+        c.srcId=hit.id; c.fromDb=true; c.status=hit.state; c.date=hit.date; autoN++;
+      });
+      save(); draw();
+      toast('已与工作台核对：'+bindN+' 条绑定记录按工作台刷新'+
+            (autoN? ('；'+autoN+' 条本地补录认领了同名的工作台记录'):'') +
+            (goneN? ('；'+goneN+' 条在工作台里已删除，标为「工作台已删除」'):''));
+      return;
+    }
+    case 'nodeev': case 'nqev': {
+      if(a==='nodeev'){ var n=byId(DB.logicNodes,id); if(n){ state.evFilter='全部'; state.view='overview'; closeDrawer(); draw(); toast('已在「关键证据」中列出该环节的全部证据'); } }
+      else { var q=byId(DB.nextQuestions,id); if(q){ state.evFilter='全部'; closeDrawer(); draw(); toast('已定位到相关证据：'+(q.missing&&q.missing.length?q.missing.join('、'):'全部类型')); } }
+      return;
+    }
+    case 'nqadd':
+      /* 「添加验证」= 去工作台建一条实验记录。科研总览不能替工作台写记录，所以直接把人送过去 */
+      hostPost({type:'ciib-ro-goto', mod:'exp'});
+      toast('已打开工作台「实验记录」：新建一条验证实验后，回到科研总览把它的证据挂到这个问题上');
+      return;
+    /* ---- 维护模式：项目 ---- */
+    case 'newproj': formProject(null); return;
+    case 'editproj': formProject(DB.meta.active); return;
+    case 'editdates':
+      if(!state.edit){ toast('点右上「✎ 维护模式」后即可修改起止时间'); return; }
+      formProjDates(); return;
+    case 'delproj':
+      if(DB.projects.length<=1){ toast('至少保留一个项目'); return; }
+      if(!confirm('删除项目「'+curP().name+'」？\n\n它的研究问题 / 逻辑节点 / 证据 / 结论 / 假设 / 内容清单会一并删除，不可撤销。工作台里的记录不受影响。')) return;
+      (function(){
+        var pid=DB.meta.active;
+        DB.projects=DB.projects.filter(function(x){ return x.id!==pid; });
+        ['questions','logicNodes','logicEdges','conclusions','hypotheses','evidence','nextQuestions','contents'].forEach(function(k){
+          DB[k]=DB[k].filter(function(x){ return x.projectId!==pid; });
+        });
+        DB.meta.active=DB.projects[0].id;
+        save(); draw(); toast('项目已删除');
+      })();
+      return;
+    /* ---- 节点 / 结论 / 假设 / 证据 / 问题 ---- */
+    /* ---- 阶段（并行）手动调整 ---- */
+    case 'stginc': case 'stgdec': case 'stgauto': {
+      var nS=byId(DB.logicNodes,id); if(!nS) return;
+      var cur=(nodeLevels()[nS.id]||0)+1;
+      if(a==='stgauto'){ nS.stg=null; }
+      else {
+        var nx = cur + (a==='stginc'?1:-1);
+        if(a==='stgdec' && nx<1){ toast('已经是第 1 阶段了'); return; }
+        if(nx>60) nx=60;
+        nS.stg = nx;
+      }
+      save(); draw();
+      if(document.getElementById('roDrawer').classList.contains('open')) openNode(id);
+      toast(a==='stgauto'
+        ? ('已恢复自动推导（当前阶段 '+((nodeLevels()[nS.id]||0)+1)+'）')
+        : ('阶段已'+(a==='stginc'?'推后':'提前')+'为 '+nS.stg+'（手动指定，不再被上游推动）'));
+      return;
+    }
+    case 'addnodeat': formNode(null, parseInt(t.dataset.lv,10)||null); return;
+    /* ---- 导入 / 导出 ---- */
+    case 'io': openIO(); return;
+    case 'ioexpdb':
+      downloadText('ciib-科研总览-全部数据-'+TODAY+'.json', JSON.stringify(DB,null,2), 'application/json');
+      toast('已导出全部数据（JSON 备份）'); return;
+    case 'ioexpproj': {
+      var cP=curP(); if(!cP){ toast('还没有项目，先新建一个'); return; }
+      downloadText('ciib-科研总览-'+cP.name+'-'+TODAY+'.json', JSON.stringify(projectPack(),null,2), 'application/json');
+      toast('已导出当前项目（JSON 数据包）'); return;
+    }
+    case 'ioexpcsv': {
+      var cC=curP(); if(!cC){ toast('还没有项目，先新建一个'); return; }
+      var ke=t.dataset.k || (document.getElementById('ioExpT')||{}).value;
+      var T1=ioTable(ke); if(!T1) return;
+      downloadText(T1.file+'-'+cC.name+'-'+TODAY+'.csv', '\ufeff'+toCSV(T1.head, T1.dump()), 'text/csv');
+      toast('已导出「'+T1.label+'」CSV'); return;
+    }
+    case 'iotmpl': {
+      var kt=t.dataset.k || (document.getElementById('ioTplT')||{}).value;
+      var T2=ioTable(kt); if(!T2) return;
+      downloadText('模板-'+T2.file+'.csv', '\ufeff'+toCSV(T2.head, T2.demo||[]), 'text/csv');
+      toast('已下载「'+T2.label+'」模板（含 '+((T2.demo||[]).length)+' 行示例）'); return;
+    }
+    case 'iocancel': {
+      var pv=document.getElementById('ioPrev'); if(pv) pv.innerHTML='';
+      pendingImport=null; return;
+    }
+    case 'iodocsv': {
+      if(!requireEdit()) return;
+      if(!pendingImport || pendingImport.kind!=='csv') return;
+      var r1=applyImport(pendingImport.text, 'x.csv');
+      if(r1.ok){ save(); closeModal(); draw(); toast('导入完成：'+r1.msg); }
+      else toast('导入失败：'+r1.msg);
+      pendingImport=null; return;
+    }
+    case 'iodojson': {
+      if(!requireEdit()) return;
+      if(!pendingImport || pendingImport.kind!=='json') return;
+      var r2=applyImport(pendingImport.text, 'x.json', t.dataset.mode);
+      if(r2.ok){ closeModal(); draw(); toast(r2.msg); }
+      else toast('导入失败：'+r2.msg);
+      pendingImport=null; return;
+    }
+    case 'addnode': formNode(null); return;
+    case 'editnode': closeDrawer(); formNode(id); return;
+    case 'delnode':
+      if(!confirm('删除该逻辑节点？')) return;
+      DB.logicNodes=DB.logicNodes.filter(function(x){ return x.id!==id; });
+      DB.logicEdges=DB.logicEdges.filter(function(x){ return x.from!==id && x.to!==id; });
+      DB.evidence.forEach(function(ev){ ev.nodeIds=ev.nodeIds.filter(function(x){ return x!==id; }); });
+      save(); draw(); toast('节点已删除'); return;
+    case 'addconc': formConc(null); return;
+    case 'editconc': closeDrawer(); formConc(id); return;
+    case 'delconc':
+      if(!confirm('删除该结论？')) return;
+      DB.conclusions=DB.conclusions.filter(function(x){ return x.id!==id; });
+      DB.evidence.forEach(function(ev){
+        ev.conclusionIds=(ev.conclusionIds||[]).filter(function(x){ return x!==id; });
+        ev.refuteConcIds=(ev.refuteConcIds||[]).filter(function(x){ return x!==id; });   /* 只解关系，证据本身保留 */
+      });
+      save(); draw(); toast('结论已删除（证据保留，仅解除关联）'); return;
+    case 'addhyp': formHyp(null); return;
+    case 'edithyp': closeDrawer(); formHyp(id); return;
+    case 'delhyp':
+      if(!confirm('删除该假设？')) return;
+      DB.hypotheses=DB.hypotheses.filter(function(x){ return x.id!==id; });
+      DB.evidence.forEach(function(ev){
+        ev.hypothesisIds=(ev.hypothesisIds||[]).filter(function(x){ return x!==id; });
+        ev.refuteHypIds=(ev.refuteHypIds||[]).filter(function(x){ return x!==id; });     /* 只解关系，证据本身保留 */
+      });
+      DB.logicNodes.forEach(function(n){ n.hypothesisIds=n.hypothesisIds.filter(function(x){ return x!==id; }); });
+      DB.nextQuestions.forEach(function(q){ q.hypothesisIds=q.hypothesisIds.filter(function(x){ return x!==id; }); });
+      save(); draw(); toast('假设已删除（证据保留，仅解除关联）'); return;
+    case 'addev': formEv(null); return;
+    case 'editev': closeModal(); closeDrawer(); formEv(id); return;
+    case 'delev':
+      if(!confirm('删除该证据？此操作会同时解除它在结论与节点上的关联。')) return;
+      DB.evidence=DB.evidence.filter(function(x){ return x.id!==id; });
+      DB.conclusions.forEach(function(c){ c.evidenceIds=c.evidenceIds.filter(function(x){ return x!==id; }); c.refuteIds=c.refuteIds.filter(function(x){ return x!==id; }); });
+      DB.logicNodes.forEach(function(n){ n.evidenceIds=n.evidenceIds.filter(function(x){ return x!==id; }); });
+      DB.hypotheses.forEach(function(h){ h.supportIds=h.supportIds.filter(function(x){ return x!==id; }); h.refuteIds=h.refuteIds.filter(function(x){ return x!==id; }); });
+      save(); draw(); toast('证据已删除，关联计数已同步'); return;
+    case 'addnq': formNq(null); return;
+    case 'editnq': closeDrawer(); formNq(id); return;
+    case 'delnq':
+      if(!confirm('删除该问题？')) return;
+      DB.nextQuestions=DB.nextQuestions.filter(function(x){ return x.id!==id; });
+      save(); draw(); toast('问题已删除'); return;
+    case 'doneq': {
+      var q=byId(DB.nextQuestions,id); if(!q) return;
+      q.done=!q.done; save(); draw(); toast(q.done?'已标记完成':'已恢复为待处理'); return;
+    }
+    case 'addq': formQuestionsManager(); return;
+    case 'editq': formQuestionsManager(); return;
+    case 'reset':
+      if(!confirm('清空科研总览的全部数据？\n\n当前 '+DB.projects.length+' 个项目，以及它们的研究问题 / 逻辑节点 / 证据 / 结论 / 假设 / 内容会被全部删除，不可撤销。\n建议先用「全部数据（JSON 备份）」导出一份。')) return;
+      DB = clone(DB_EMPTY); state.expanded=[]; state.evFilter='全部'; state.view='overview';
+      persist(DB); closeModal(); draw(); toast('已清空全部数据'); return;
+  }
+}
+
+function onChange(e){
+  var el=e.target;
+  /* 多选勾选框：刷新「已选 N / 总数」与高亮 */
+  if(el && el.matches && el.matches('.msel input[type=checkbox]')) refreshMsel(el.closest('.msel'));
+  /* 项目标签单选：刷新胶囊高亮 */
+  if(el && el.matches && el.matches('.radios input[type=radio]')){
+    Array.prototype.slice.call(el.closest('.radios').querySelectorAll('label')).forEach(function(l){
+      var i=l.querySelector('input'); l.classList.toggle('on', !!(i&&i.checked));
+    });
+  }
+  var t=e.target.closest('[data-act]');
+  if(!t) return;
+  if(t.dataset.act==='projsel'){
+    /* 下拉里的「＋ 新建项目…」：回到当前项目再开新建表单，避免选了个不存在的值 */
+    if(t.value==='__new'){ t.value=DB.meta.active||''; formProject(null); return; }
+    DB.meta.active=t.value; state.expanded=[]; state.evFilter='全部'; persist(DB); draw(); return;
+  }
+  if(t.dataset.act==='ctsel'){ state.ct[t.dataset.k]=t.value; draw(); return; }
+}
+
+/* ==========================================================================
+   启动
+   ========================================================================== */
+DB = loadDB();
+(function mount(){
+  initTheme();
+  var ro=document.getElementById('ro');
+  ro.innerHTML = topHTML() + '<main class="ro-view" id="roView"></main>';
+  document.addEventListener('click', onAct);
+  document.addEventListener('change', onChange);
+  draw();
+  reqIndex();     /* 嵌入工作台时，把工作台各模块的真实记录拉过来 */
+})();
+
+/* 便于人工检查：把关键结构挂到 window（只读用途，不影响功能） */
+window.CIIB_RO = {
+  db:function(){ return DB; }, state:state, key:LS_KEY,
+  uniqTypes:uniqTypes, sec5:sec5, sec2:sec2, sec1:sec1,
+  /* 阶段 / 并行 */
+  nodeLevels:nodeLevels, dagColumns:dagColumns, maxStage:maxStage, nodeAuto:nodeAuto,
+  /* 模块优先选择器 / 配色 */
+  SRC_MODULES:SRC_MODULES, contentsOf:contentsOf, cardLabel:cardLabel, modName:modName,
+  srcLabel:srcLabel, srcModKeyOf:srcModKeyOf, evSrcText:evSrcText, evRefTitle:evRefTitle,
+  carryRefs:carryRefs, evRefHTML:evRefHTML,
+  setTheme:setTheme, embedded:EMBEDDED,
+  /* 工作台索引（只读）与绑定关系 */
+  dep:function(){ return RODEP; }, depItems:depItems, depItem:depItem, depReady:depReady, depCount:depCount,
+  pickVal:pickVal, parsePick:parsePick, ensureContent:ensureContent, dbPickList:dbPickList,
+  ctBound:ctBound, ctTitle:ctTitle, ctState:ctState, ctDate:ctDate, ctGone:ctGone,
+  evCanOpen:evCanOpen, evSrcFlag:evSrcFlag, openContent:openContent,
+  /* 测试用：直接塞一份工作台索引（等价于主站 postMessage 推过来的那份） */
+  setDep:function(mods){ RODEP.ok=true; RODEP.modules=mods||[]; draw(); },
+  /* 完成态沉底 */
+  sinkDone:sinkDone, sinkBy:sinkBy, DONE_OF:DONE_OF,
+  /* 导入 / 导出（供测试直接调用，等价于点面板里的按钮） */
+  tables:function(){ return IO_TABLES.map(function(t){ return t.key; }); },
+  toCSV:toCSV, parseCSV:parseCSV, detectTable:function(h){ var T=detectTable(h); return T?T.key:null; },
+  tmpl:function(k){ var T=ioTable(k); return T?toCSV(T.head, T.demo):''; },
+  exportTable:function(k){ var T=ioTable(k); return T?toCSV(T.head, T.dump()):''; },
+  exportProject:function(){ return JSON.stringify(projectPack()); },
+  exportAll:function(){ return JSON.stringify(DB); },
+  importText:function(text,name,mode){ return applyImport(text,name,mode); }
+};
+
+})();
+</script>
+</body></html>

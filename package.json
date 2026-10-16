@@ -1,0 +1,13 @@
+{
+  "name": "ciib-rag-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A sanitized portfolio edition of the CIIB research workbench",
+  "scripts": {
+    "test": "node _ciib_dev/tests/test-assistant.js",
+    "build:offline": "node workplat/ciib_app/build-standalone.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

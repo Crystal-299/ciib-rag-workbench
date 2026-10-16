@@ -1,0 +1,12 @@
+node_modules/
+workplat/dist/
+workplat/config.local.js
+*.dna
+*.fastq
+*.fastq.gz
+*.bam
+*.cram
+*.vcf.gz
+.env*
+_ciib_private/
+.workbuddy/
